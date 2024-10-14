@@ -1,4 +1,4 @@
-from django.http import HttpResponse
+from django.http import HttpRequest, HttpResponse
 
-def hello_world(request):
+def hello_world(request: HttpRequest) -> HttpResponse:
     return HttpResponse("Hello, world!")
