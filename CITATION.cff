@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Natural language processing applied to psychological assistance"
+authors:
+  - family-names: "Caballero María"
+    given-names: "Pablo"
+url: "https://github.com/Pablo-Caballero-Maria/Whope_backend"
+version: "1.0.0"
+license: "MIT"
