@@ -37,7 +37,8 @@ INSTALLED_APPS: List[str]  = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'dummy',
+    'channels',
+    'hello_world',
 ]
 
 MIDDLEWARE: List[str] = [
@@ -122,3 +123,5 @@ STATIC_URL: str = 'static/'
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD: str = 'django.db.models.BigAutoField'
+
+ASGI_APPLICATION: str = 'whope_backend.asgi.application'
