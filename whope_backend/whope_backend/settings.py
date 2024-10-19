@@ -12,6 +12,11 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 
 from pathlib import Path
 from typing import List, Dict, Any
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR: Path = Path(__file__).resolve().parent.parent
 
@@ -20,7 +25,7 @@ BASE_DIR: Path = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY: str = 'django-insecure-=bpii^5*i8a1t$b-sia6wvawwx(x-9-f#1+7ziqwp8)te!=4z='
+SECRET_KEY: str = os.getenv("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG: bool = True
@@ -125,3 +130,5 @@ STATIC_URL: str = 'static/'
 DEFAULT_AUTO_FIELD: str = 'django.db.models.BigAutoField'
 
 ASGI_APPLICATION: str = 'whope_backend.asgi.application'
+
+HF_TOKEN: str = os.getenv("HF_TOKEN")

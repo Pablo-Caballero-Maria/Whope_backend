@@ -1,8 +1,10 @@
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from huggingface_hub import InferenceClient
+from django.conf import settings
 
-token = "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"
+token = settings.HF_TOKEN
+
 client = InferenceClient(api_key=token)
 
 class HelloWorldConsumer(AsyncWebsocketConsumer):
