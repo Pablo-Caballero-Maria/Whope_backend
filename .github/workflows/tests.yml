@@ -1,0 +1,44 @@
+name: Tests 
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up MongoDB
+        run: |
+          sudo apt-get install -y mongodb
+          sudo service mongodb start
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'  
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          cd whope_backend
+          poetry install
+
+      - name: Run tests
+        env:
+          MONGO_URI: ${{secrets.MONGO_URI}}
+        run: |
+          cd whope_backend
+          poetry run pytest

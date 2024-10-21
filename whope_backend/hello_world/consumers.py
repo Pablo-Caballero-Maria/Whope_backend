@@ -3,18 +3,18 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from huggingface_hub import InferenceClient
 from django.conf import settings
 
-token = settings.HF_TOKEN
+token: str = settings.HF_TOKEN
 
-client = InferenceClient(api_key=token)
+client: InferenceClient = InferenceClient(api_key=token)
 
 class HelloWorldConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         await self.accept()  
 
-    async def disconnect(self, close_code):
+    async def disconnect(self, close_code: int) -> None:
         pass  
 
-    async def receive(self, text_data):
+    async def receive(self, text_data: str) -> None:
         answer: str = ""
         for message in client.chat_completion(
 	        model="mistralai/Mistral-Nemo-Instruct-2407",
