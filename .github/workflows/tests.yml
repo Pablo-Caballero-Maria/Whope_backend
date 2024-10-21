@@ -44,4 +44,4 @@ jobs:
           MONGO_URI: ${{secrets.MONGO_URI}}
         run: |
           cd whope_backend
-          poetry run pytest
+          poetry run pytest -v
