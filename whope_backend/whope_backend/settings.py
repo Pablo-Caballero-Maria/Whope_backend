@@ -14,8 +14,9 @@ from pathlib import Path
 from typing import List, Dict, Any
 import os
 from dotenv import load_dotenv
-from pymongo.mongo_client import MongoClient
 from datetime import timedelta
+from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.database import Database
 
 load_dotenv()
 
@@ -143,12 +144,10 @@ CHANNEL_LAYERS: Dict[str, Dict[str, Any]]= {
     }
 }
 
-MONGO_URI: str = os.getenv("MONGO_URI")
-MONGO_CLIENT: MongoClient = MongoClient(MONGO_URI)
-MONGO_DB: Any = MONGO_CLIENT["whope_backend"]
-
-if os.getenv("testing"):
-    MONGO_DB: Any = MONGO_CLIENT["whope_backend_test"]
+async def get_motor_db() -> Database:
+    uri: str = os.getenv("MONGO_URI")
+    client: AsyncIOMotorClient = AsyncIOMotorClient(uri)
+    return client["whope_backend"] if not os.getenv("TESTING") else client["whope_backend_test"]
 
 REST_FRAMEWORK: Dict[str, tuple] = {
     "DEFAULT_AUTHENTICATION_CLASSES": (

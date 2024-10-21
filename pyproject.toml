@@ -13,12 +13,12 @@ channels = "^4.1.0"
 websocket-client = "^1.8.0"
 huggingface-hub = "^0.25.2"
 python-dotenv = "^1.0.1"
-pymongo = "^4.10.1"
 djangorestframework = "^3.15.2"
 djangorestframework-simplejwt = "^5.3.1"
 passlib = "^1.7.4"
 pytest-django = "^4.9.0"
 pytest-asyncio = "^0.24.0"
+motor = "^3.6.0"
 
 
 [build-system]

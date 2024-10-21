@@ -2,19 +2,13 @@ import pytest
 from channels.testing import WebsocketCommunicator
 from django.test import TransactionTestCase
 from whope_backend.asgi import application
-from django.conf import settings
-from typing import Any, Dict
+from typing import Dict
 import os
+from whope_backend.settings import get_motor_db
+from motor.motor_asyncio import AsyncIOMotorDatabase
 
-@pytest.fixture
-def mongo_db():
-    os.environ['TESTING'] = '1'
-    db = settings.MONGO_DB
-    db.drop_collection('users')
-    yield db
+os.environ["TESTING"] = "True"
 
-@pytest.mark.asyncio
-@pytest.mark.usefixtures("mongo_db")
 class TestAuthenticationConsumer(TransactionTestCase): 
 
     async def test_dummy(self) -> None:
@@ -24,9 +18,14 @@ class TestAuthenticationConsumer(TransactionTestCase):
         communicator: WebsocketCommunicator = WebsocketCommunicator(application, "/ws/authentication/")
         connected, _ = await communicator.connect()
         assert connected
+        
+        db: AsyncIOMotorDatabase = await get_motor_db()
+        await db.drop_collection('users')
+        
         return communicator
 
-    async def test_register_user_success(self) -> None:
+    async def test_register_user_success(self) -> None: 
+
         communicator: WebsocketCommunicator = await self.websocket_connect()
 
         register_data: Dict[str, str] = {

@@ -14,6 +14,7 @@ from channels.routing import ProtocolTypeRouter, URLRouter
 from channels.auth import AuthMiddlewareStack
 import hello_world.routing
 import authentication.routing
+import chat.routing
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'whope_backend.settings')
 
@@ -22,7 +23,8 @@ application: "ASGIApplication" = ProtocolTypeRouter({
     "websocket": AuthMiddlewareStack(
         URLRouter(
             hello_world.routing.websocket_urlpatterns + 
-            authentication.routing.websocket_urlpatterns
+            authentication.routing.websocket_urlpatterns +
+            chat.routing.websocket_urlpatterns
         )
     ),
 })
