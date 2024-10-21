@@ -1,3 +1,5 @@
+[![Tests](https://github.com/Pablo-Caballero-Maria/Whope_backend/actions/workflows/tests.yml/badge.svg)](https://github.com/Pablo-Caballero-Maria/Whope_backend/actions/workflows/tests.yml)
+
 # Whope
 Whope is the Sioux goddess of peace, harmony, and friendship.
 
