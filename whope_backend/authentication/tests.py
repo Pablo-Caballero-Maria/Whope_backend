@@ -1,4 +1,3 @@
-import pytest
 from channels.testing import WebsocketCommunicator
 from django.test import TransactionTestCase
 from whope_backend.asgi import application

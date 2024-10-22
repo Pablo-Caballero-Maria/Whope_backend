@@ -31,10 +31,15 @@ class ChatConsumer(AsyncWebsocketConsumer):
         token: str = data.get('token', '')
         message: str = data.get('message', '')
         
-        if not message or not token:
+        if not message:
+            await self.send(text_data=json.dumps({'error': 'Message must not be empty.'}))
             return
-        
-        self.user = await self.get_user_from_token(token)
+
+        if not token:
+            await self.send(text_data=json.dumps({'error': 'Token must not be empty.'}))
+            return
+
+        self.user: Dict[str, Any] = await self.get_user_from_token(token)
         if not self.user:
             await self.send(text_data=json.dumps({'error': 'Invalid token.'}))
             return
