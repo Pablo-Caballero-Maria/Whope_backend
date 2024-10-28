@@ -35,7 +35,7 @@ class TestAuthenticationConsumer(TransactionTestCase):
         await communicator.send_json_to(register_data)
         
         response: str = await communicator.receive_json_from()
-        assert response['message'] == 'User registered successfully.'
+        assert response.get('message', None) == 'User registered successfully.'
 
     async def test_register_user_already_exists(self) -> None:
         communicator: WebsocketCommunicator = await self.websocket_connect()
@@ -50,7 +50,7 @@ class TestAuthenticationConsumer(TransactionTestCase):
 
         await communicator.send_json_to(register_data)
         response: str = await communicator.receive_json_from()
-        assert response['error'] == 'User already exists.'
+        assert response.get('error', None) == 'User already exists.'
 
     async def test_login_user_success(self) -> None:
         communicator: WebsocketCommunicator = await self.websocket_connect()
@@ -71,7 +71,7 @@ class TestAuthenticationConsumer(TransactionTestCase):
         await communicator.send_json_to(login_data)
 
         response: str = await communicator.receive_json_from()
-        assert response['message'] == 'Login successful.'
+        assert response.get('message', None) == 'Login successful.'
         assert 'tokens' in response
 
     async def test_login_user_invalid_credentials(self) -> None:
@@ -94,7 +94,7 @@ class TestAuthenticationConsumer(TransactionTestCase):
         await communicator.send_json_to(login_data)
 
         response: str = await communicator.receive_json_from()
-        assert response['error'] == 'Invalid password.'
+        assert response.get('error', None) == 'Invalid password.'
 
     async def test_login_user_missing_fields(self) -> None:
         communicator: WebsocketCommunicator = await self.websocket_connect()
@@ -105,7 +105,7 @@ class TestAuthenticationConsumer(TransactionTestCase):
         await communicator.send_json_to(login_data)
 
         response: str = await communicator.receive_json_from()
-        assert response['error'] == 'Username and password are required.'
+        assert response.get('error', None) == 'Username and password are required.'
 
     async def test_register_user_missing_fields(self) -> None:
         communicator: WebsocketCommunicator = await self.websocket_connect()
@@ -116,5 +116,5 @@ class TestAuthenticationConsumer(TransactionTestCase):
         await communicator.send_json_to(register_data)
 
         response: str = await communicator.receive_json_from()
-        assert response['error'] == 'Username and password are required.'
+        assert response.get('error', None) == 'Username and password are required.'
 

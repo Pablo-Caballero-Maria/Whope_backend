@@ -1,4 +1,5 @@
 #!/bin/bash
+fuser -k 8000/tcp
 export TESTING=0
 cd whope_backend
 export DJANGO_SETTINGS_MODULE=whope_backend.settings

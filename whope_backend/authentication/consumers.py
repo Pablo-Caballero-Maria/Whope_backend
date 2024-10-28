@@ -13,7 +13,7 @@ class AuthenticationConsumer(AsyncWebsocketConsumer):
         pass
 
     async def receive(self, text_data: Dict[str, str]) -> None:
-        data: Dict[str, Any] = json.loads(text_data)
+        data: Dict[str, str] = json.loads(text_data)
         action: str = data.get('action', '')
 
         if action == 'register':
@@ -24,6 +24,8 @@ class AuthenticationConsumer(AsyncWebsocketConsumer):
     async def register_user(self, data: Dict[str, Any]) -> None:
         username: str = data.get('username', '')
         password: str = data.get('password', '')
+        is_worker: bool = data.get('is_worker', False)
+        status: str = 'Disconnected'
         
         if not password or not username:
             await self.send(json.dumps({'error': 'Username and password are required.'}))
@@ -40,9 +42,10 @@ class AuthenticationConsumer(AsyncWebsocketConsumer):
         hashed_password: str = bcrypt.hash(password)
         await users.insert_one({
             'username': username,
-            'password': hashed_password
+            'password': hashed_password,
+            'is_worker': is_worker,
+            'status': status
         })
-        
         await self.send(json.dumps({'message': 'User registered successfully.'}))
 
     async def login_user(self, data: Dict[str, Any]) -> None:
@@ -56,16 +59,18 @@ class AuthenticationConsumer(AsyncWebsocketConsumer):
         db: AsyncIOMotorDatabase = await get_motor_db()
         users: AsyncIOMotorCollection = db["users"]
         user: Dict[str, Any] = await users.find_one({'username': username})
-        if not bcrypt.verify(password, user['password']):
+        if not bcrypt.verify(password, user.get('password', None)):
             await self.send(json.dumps({'error': 'Invalid password.'}))
             return
-        
+       
+        await self.set_user_status(user, 'Free')
+
         from rest_framework_simplejwt.tokens import RefreshToken
-        user_id: str = str(user['_id'])
+        user_id: str = str(user.get('_id', None))
         refresh: RefreshToken = RefreshToken()
         refresh['user_id'] = user_id
         refresh['username'] = username
-
+        refresh['is_worker'] = user.get('is_worker', False)
         tokens: Dict[str, str] = {
             'refresh': str(refresh),
             'access': str(refresh.access_token),
@@ -75,3 +80,11 @@ class AuthenticationConsumer(AsyncWebsocketConsumer):
             'message': 'Login successful.',
             'tokens': tokens
         }))
+
+    async def set_user_status(self, user: Dict[str, Any], status: str) -> None:
+        db: AsyncIOMotorDatabase = await get_motor_db()
+        users: AsyncIOMotorCollection = db["users"]
+        await users.update_one(
+            {"_id": user.get('user_id', None)},
+            {"$set": {"status": status}}
+        )

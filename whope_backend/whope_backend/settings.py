@@ -156,7 +156,7 @@ REST_FRAMEWORK: Dict[str, tuple] = {
 }
 
 SIMPLE_JWT: Dict[str, timedelta] = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=300),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
 }
 

@@ -55,10 +55,10 @@ class TestChatConsumer(TransactionTestCase):
         }
         await auth_communicator.send_json_to(login_data)
         response: Dict[str, str] = await auth_communicator.receive_json_from()
-        assert response['message'] == 'Login successful.'
+        assert response.get('message', None) == 'Login successful.'
         assert 'tokens' in response
 
-        access_token: str = response['tokens']['access']
+        access_token: str = response.get('tokens', None).get('access', None)
         await auth_communicator.disconnect()
         return access_token
 
@@ -73,8 +73,8 @@ class TestChatConsumer(TransactionTestCase):
         await communicator.send_json_to(message_data)
 
         response: Dict[str, str] = await communicator.receive_json_from()
-        assert response['username'] == 'username_test'
-        assert response['message'] == 'Hello, world!'
+        assert response.get('username', None) == 'username_test'
+        assert response.get('message', None) == 'Hello, world!'
 
         await communicator.disconnect()
 
@@ -85,7 +85,7 @@ class TestChatConsumer(TransactionTestCase):
         await communicator.send_json_to(message_data)
 
         response = await communicator.receive_json_from()
-        assert response['error'] == 'Message must not be empty.'
+        assert response.get('error', None) == 'Message must not be empty.'
 
         await communicator.disconnect()
 
@@ -96,7 +96,7 @@ class TestChatConsumer(TransactionTestCase):
         }
         await communicator.send_json_to(message_data)
         response: Dict[str, str] = await communicator.receive_json_from()
-        assert response['error'] == 'Token must not be empty.'
+        assert response.get('error', None) == 'Token must not be empty.'
 
         await communicator.disconnect()
 
@@ -107,6 +107,6 @@ class TestChatConsumer(TransactionTestCase):
         }
         await communicator.send_json_to(message_data)
         response: Dict[str, str] = await communicator.receive_json_from()
-        assert response['error'] == 'Invalid token.'
+        assert response.get('error', None) == 'Invalid token.'
 
         await communicator.disconnect()
