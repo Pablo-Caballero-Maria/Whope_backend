@@ -5,9 +5,11 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from motor.motor_asyncio import AsyncIOMotorDatabase, AsyncIOMotorCollection
 from whope_backend.settings import get_motor_db
 from datetime import datetime, timezone
-import random
 import asyncio
 from urllib.parse import parse_qs
+from chat.tasks import check_for_non_workers_task
+from celery.result import AsyncResult
+from asgiref.sync import sync_to_async
 
 # room_name is the name of the room that the user is connected to.
 # room_group_name groups all the users connected to the a room.
@@ -17,7 +19,7 @@ from urllib.parse import parse_qs
 class ChatConsumer(AsyncWebsocketConsumer):
 
     async def connect(self) -> None:
-        self.task = None
+        # self.task = None
         query_string: str = self.scope['query_string'].decode('utf-8')
         query_params: Dict[str, Any] = parse_qs(query_string)
         self.token: str = query_params.get('token', [None])[0]
@@ -34,15 +36,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self.accept()
 
     async def disconnect(self, close_code: int) -> None:
-        # the cancel has to be here as well as in check_for_non_workers in case the worker has not found a non worker
-        # (and thus canceled the task) before disconnecting
-        self.task.cancel() if self.task else None
+        AsyncResult(self.task_id).revoke(terminate=True) if self.user.get('is_worker', False) == 'True' else None
         await self.channel_layer.group_discard(self.room_name, self.user.get('channel_name', None))
         await self.save_channel_name(self.user, None)
         await self.set_user_status(self.user, "Disconnected")
         # this message will only be received by the OTHER user
         await self.channel_layer.group_send(self.room_name, {'type': 'user_disconnection'})
-
 
     async def receive(self, text_data: str) -> None:
         data: Dict[str, str] = json.loads(text_data)
@@ -93,36 +92,27 @@ class ChatConsumer(AsyncWebsocketConsumer):
     async def assign_room(self) -> None:
         if self.user.get('is_worker', False) == 'True':
             self.room_name: str = f"{self.user.get('username', None)}_waiting_room"
-            task: asyncio.Task = asyncio.create_task(self.check_for_non_workers())
-            self.task = task
+            task: AsyncResult  = check_for_non_workers_task.delay()
+            self.task_id: str = task.id
+            # the celery task is asynchronous while it runs, but the fact that we must wait for it to finish
+            # makes it synchronous in practice, which blocks the asynchronous consumer, preventing it from listening
+            # to other events. thus the necessity of monitoring it asynchronously by using asyncio.create_task
+            asyncio.create_task(self.monitor_task(task.id)) 
         else:
             self.room_name: str = f"{self.user.get('username', None)}_virtual_room"
-                
+
         await self.channel_layer.group_add(self.room_name, self.user.get('channel_name', None))
 
-        
-    async def check_for_non_workers(self) -> None:
-        # only workers ping looking for non workers
-        interval: float = 1
-        while True:
-            free_non_worker: Dict[str, str] = await self.get_free_non_worker()
-            if free_non_worker:
-                worker_username = self.user.get('username', None)
-                non_worker_username = free_non_worker.get('username', None)
-                await self.channel_layer.group_discard(self.room_name, self.user.get('channel_name', None))
-                new_room_name: str = f"{worker_username}_{non_worker_username}_real_room"
-                self.room_name: str = new_room_name # this has only been called by the worker, so we need to change this variable for the non worker
-                await self.channel_layer.group_send(f"{non_worker_username}_virtual_room", {'type': 'update_room_name', 'new_room_name': new_room_name})
-                await self.channel_layer.group_discard(f"{non_worker_username}_virtual_room", free_non_worker.get('channel_name', None))
-                await self.set_user_status(self.user, "Busy")
-                await self.set_user_status(free_non_worker, "Busy")
-                await self.channel_layer.group_add(new_room_name, self.user.get('channel_name', None))
-                await self.channel_layer.group_add(new_room_name, free_non_worker.get('channel_name', None))
-                # cannot kill task before cuz the function would return too early without completing all steps
-                self.task.cancel()
-                break
-            else:
-                await asyncio.sleep(interval)
+    async def process_non_worker_assignment(self, worker_username, free_non_worker):
+        # Aquí agrega la lógica que se ejecutará cuando encuentre un `non_worker`
+        new_room_name: str = f"{worker_username}_{free_non_worker['username']}_real_room"
+        self.room_name: str = new_room_name
+        await self.channel_layer.group_send(f"{free_non_worker['username']}_virtual_room", {'type': 'update_room_name', 'new_room_name': new_room_name})
+        await self.channel_layer.group_discard(f"{free_non_worker['username']}_virtual_room", free_non_worker.get('channel_name', None))
+        await self.set_user_status(self.user, "Busy")
+        await self.set_user_status(free_non_worker, "Busy")
+        await self.channel_layer.group_add(new_room_name, self.user.get('channel_name', None))
+        await self.channel_layer.group_add(new_room_name, free_non_worker.get('channel_name', None))
 
     async def set_user_status(self, user: Dict[str, str], status: str) -> None:
         users: AsyncIOMotorCollection = await self.get_users()
@@ -130,15 +120,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
             {"_id": ObjectId(user.get('user_id', None))},
             {"$set": {"status": status}}
         )
-
-    async def get_free_non_worker(self) -> Dict[str, str]:
-        # i have to make a new call to db to get the most updated version
-        db: AsyncIOMotorDatabase = await get_motor_db()
-        users: AsyncIOMotorCollection = db["users"]
-        non_workers: Dict[str, str] = await users.find({"is_worker": "False", "status": "Free"}).to_list(None)
-        if non_workers:
-            return random.choice(non_workers)
-        return None
 
     async def save_channel_name(self, user: Dict[str, str], channel_name: str) -> None:
         users: AsyncIOMotorCollection = await self.get_users()
@@ -165,9 +146,28 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     async def user_disconnection(self, event: Dict[str, str]) -> None:
         if self.user.get('is_worker', False) == 'True':
+            AsyncResult(self.task_id).revoke(terminate=True)
             # if the non worker disconnected, the worker goes back to pinging
             await self.set_user_status(self.user, "Free")
             await self.assign_room()
         else:
             # if the worker disconnected, the non worker closes the connection
+            await self.set_user_status(self.user, "Disconnected")
             await self.close()
+
+    async def monitor_task(self, task_id: str) -> None:
+        while True:
+            # paradoxically, AsyncResult is not asynchronous, so we wrap it in sync_to_async to use it inside monitor_task
+            # which is asynchronous since its a (non blocking) asyncio task
+            task_result: Dict[str, str] = await sync_to_async(self.get_task_result)(task_id)
+            if task_result:
+                await self.process_non_worker_assignment(self.user.get('username'), task_result)
+                break
+            else:
+                await asyncio.sleep(1)
+
+    def get_task_result(self, task_id: str) -> Dict[str, str]:
+        result: AsyncResult = AsyncResult(task_id)
+        if result.ready():
+            return result.result
+        return None
