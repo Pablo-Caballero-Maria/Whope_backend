@@ -3,7 +3,7 @@ import json
 from typing import Any, Dict
 from channels.generic.websocket import AsyncWebsocketConsumer
 from motor.motor_asyncio import AsyncIOMotorDatabase, AsyncIOMotorCollection
-from whope_backend.settings import get_motor_db
+from whope_backend.settings import get_motor_db, RABBITMQ_URI
 from datetime import datetime, timezone
 import asyncio
 from urllib.parse import parse_qs
@@ -11,8 +11,8 @@ from chat.tasks import check_for_non_workers_task
 from celery.result import AsyncResult
 from asgiref.sync import sync_to_async
 import logging
-from pika import BlockingConnection, ConnectionParameters
 import threading
+import aio_pika
 
 # room_name is the name of the room that the user is connected to.
 # room_group_name groups all the users connected to the a room.
@@ -40,7 +40,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     async def disconnect(self, close_code: int) -> None:
         AsyncResult(self.celery_task_id).revoke(terminate=True) if self.user.get('is_worker', False) == 'True' else None
-        await self.stop_listening() if self.user.get('is_worker', False) == 'True' else None
+        await self.rabbit_connection.close() if self.user.get('is_worker', False) else None
         await self.channel_layer.group_discard(self.room_name, self.user.get('channel_name', None))
         await self.save_channel_name(self.user, None)
         await self.set_user_status(self.user, "Disconnected")
@@ -96,8 +96,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
     async def assign_room(self) -> None:
         if self.user.get('is_worker', False) == 'True':
             self.room_name: str = f"{self.user.get('username', None)}_waiting_room"
-            self.is_rabbit_listening: bool = False
-            await self.start_listening()
+            await self.listen_to_rabbit()
             # the celery celery_task is asynchronous while it runs, but the fact that we must wait for it to finish
             # makes it synchronous in practice, which blocks the asynchronous consumer, preventing it from listening
             # to other events. thus the necessity of monitoring it asynchronously by using asyncio.create_celery_task(monitor_celery_task)
@@ -107,15 +106,15 @@ class ChatConsumer(AsyncWebsocketConsumer):
             celery_task: AsyncResult = check_for_non_workers_task.delay(self.user.get('username', None))
             self.celery_task_id: str = celery_task.id
             asyncio.create_task(self.monitor_celery_task(celery_task))
+            print("B")
         else:
             self.room_name: str = f"{self.user.get('username', None)}_virtual_room"
 
         await self.channel_layer.group_add(self.room_name, self.user.get('channel_name', None))
 
     async def process_non_worker_assignment(self, worker_username, free_non_worker):
-        # TODO: kill the rabbit listening thread (here and in disconnect and in user_disconnection)
         # if this code is reached, then the celery task is already killed
-        # Aquí agrega la lógica que se ejecutará cuando encuentre un `non_worker`
+        await self.rabbit_connection.close()
         new_room_name: str = f"{worker_username}_{free_non_worker['username']}_real_room"
         self.room_name: str = new_room_name
         await self.channel_layer.group_send(f"{free_non_worker['username']}_virtual_room", {'type': 'update_room_name', 'new_room_name': new_room_name})
@@ -158,7 +157,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
     async def user_disconnection(self, event: Dict[str, str]) -> None:
         if self.user.get('is_worker', False) == 'True':
             AsyncResult(self.celery_task_id).revoke(terminate=True)
-            await self.stop_listening()
+            await self.rabbit_connection.close()
             # if the non worker disconnected, the worker goes back to pinging
             await self.set_user_status(self.user, "Free")
             await self.assign_room()
@@ -168,32 +167,30 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.close()
 
     async def listen_to_rabbit(self) -> None:
-        # Configuración de logger y conexión
-        pika_logger: logging.Logger = logging.getLogger('pika')
+        # Configurar el logger para aio_pika
+        pika_logger = logging.getLogger('aio_pika')
         pika_logger.setLevel(logging.ERROR)
-    
-        # Usar un thread para evitar el bloqueo
-        def run_rabbit():
-            connection = BlockingConnection(ConnectionParameters('localhost'))
-            channel = connection.channel()
-            channel.queue_declare(queue='assignment_queue', durable=True)
 
-            for _, _, body in channel.consume(queue='assignment_queue', auto_ack=True):
-                if not self.is_rabbit_listening:
-                    break
-                data: Dict[str, str] = json.loads(body)
+        # Conectar asincrónicamente a RabbitMQ
+        connection: aio_pika.RobustConnection = await aio_pika.connect_robust(RABBITMQ_URI)
+        self.rabbit_connection: aio_pika.RobustConnection = connection
+        channel: aio_pika.Channel = await self.rabbit_connection.channel()
+        await channel.set_qos(prefetch_count=1)  # Controla la cantidad de mensajes sin procesar permitidos
+
+        # Declarar la cola y configurar el consumidor
+        queue: aio_pika.Queue = await channel.declare_queue("assignment_queue", durable=True)
+
+        async def on_message(message: aio_pika.IncomingMessage) -> None:
+            async with message.process():
+                data: Dict[str, str] = json.loads(message.body)
                 worker_username: str = data.get('worker_username', None)
                 free_non_worker: str = data.get('free_non_worker', None)
 
                 if worker_username == self.user.get('username'):
-                    asyncio.run(self.process_non_worker_assignment(worker_username, free_non_worker))
-                    break
-
-            connection.close()
-
-        self.is_rabbit_listening = True
-        # Iniciar la escucha en un thread separado
-        threading.Thread(target=run_rabbit).start()
+                    await self.process_non_worker_assignment(worker_username, free_non_worker)
+                    await self.rabbit_connection.close()  # Cerrar la conexión una vez procesado el mensaje
+        # Iniciar la escucha asincrónica
+        await queue.consume(on_message)
 
     async def monitor_celery_task(self, celery_task_id: str) -> None:
         while True:
@@ -211,16 +208,3 @@ class ChatConsumer(AsyncWebsocketConsumer):
             return result.result
         return None
 
-    async def monitor_listen_to_rabbit_task(self) -> None:
-        while self.is_rabbit_listening:
-            await asyncio.sleep(1)
-            if not self.is_rabbit_listening:
-                break
-
-    async def start_listening(self) -> None:
-        self.is_rabbit_listening: bool = True
-        await self.listen_to_rabbit()
-        asyncio.create_task(self.monitor_listen_to_rabbit_task())
-
-    async def stop_listening(self) -> None:
-        self.is_rabbit_listening: bool = False

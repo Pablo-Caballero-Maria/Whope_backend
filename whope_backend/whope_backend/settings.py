@@ -49,7 +49,6 @@ INSTALLED_APPS: List[str]  = [
     "channels",
     "authentication",
     "chat",
-    "hello_world",
 ]
 
 MIDDLEWARE: List[str] = [
