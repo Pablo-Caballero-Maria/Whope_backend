@@ -10,11 +10,12 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
-from pathlib import Path
-from typing import List, Dict, Any
 import os
-from dotenv import load_dotenv
 from datetime import timedelta
+from pathlib import Path
+from typing import Any, Dict, List
+
+from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.database import Database
 
@@ -38,7 +39,7 @@ ALLOWED_HOSTS: List[str] = []
 
 # Application definition
 
-INSTALLED_APPS: List[str]  = [
+INSTALLED_APPS: List[str] = [
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -137,21 +138,23 @@ ASGI_APPLICATION: str = "whope_backend.asgi.application"
 
 HF_TOKEN: str = os.getenv("HF_TOKEN")
 
-CHANNEL_LAYERS: Dict[str, Dict[str, Any]]= {
-    "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer"
-    }
+CHANNEL_LAYERS: Dict[str, Dict[str, Any]] = {
+    "default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}
 }
 
 MONGODB_URI: str = os.getenv("MONGODB_URI")
 RABBITMQ_URI: str = os.getenv("RABBITMQ_URI")
 CELERY_RESULT_BACKEND: str = os.getenv("CELERY_RESULT_BACKEND")
 
-async def get_motor_db() -> Database:
-    uri: str = os.getenv(MONGODB_URI)
-    client: AsyncIOMotorClient = AsyncIOMotorClient(uri)
-    return client["whope_backend"] if os.getenv("TESTING") == 1 else client["whope_backend_test"]
 
+async def get_motor_db() -> Database:
+    uri: str = MONGODB_URI
+    client: AsyncIOMotorClient = AsyncIOMotorClient(uri)
+    return (
+        client["whope_backend"]
+        if os.getenv("TESTING") == 1
+        else client["whope_backend_test"]
+    )
 
 
 REST_FRAMEWORK: Dict[str, tuple] = {
@@ -164,5 +167,3 @@ SIMPLE_JWT: Dict[str, timedelta] = {
     "ACCESS_TOKEN_LIFETIME": timedelta(days=300),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
 }
-
-

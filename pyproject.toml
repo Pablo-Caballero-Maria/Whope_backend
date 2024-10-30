@@ -23,6 +23,14 @@ celery = "*"
 aio-pika = "*"
 
 
+[tool.poetry.group.dev.dependencies]
+black = "*"
+isort = "*"
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
