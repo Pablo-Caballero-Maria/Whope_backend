@@ -11,7 +11,6 @@ from chat.tasks import check_for_non_workers_task
 from celery.result import AsyncResult
 from asgiref.sync import sync_to_async
 import logging
-import threading
 import aio_pika
 
 # room_name is the name of the room that the user is connected to.
@@ -22,7 +21,6 @@ import aio_pika
 class ChatConsumer(AsyncWebsocketConsumer):
 
     async def connect(self) -> None:
-        # self.celery_task = None
         query_string: str = self.scope['query_string'].decode('utf-8')
         query_params: Dict[str, Any] = parse_qs(query_string)
         self.token: str = query_params.get('token', [None])[0]
@@ -103,8 +101,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
             # which will stop once check_for_non_workers finishes (returning None)
             # we can monitor asynchronously the task itself because delay returns an objcet with a property "result" that can be "ready"
             # unlike rabbit, where that checking of props must be done by us
-            celery_task: AsyncResult = check_for_non_workers_task.delay(self.user.get('username', None))
+            # "delay" returns an AsyncResult object, which cannot be used with await
+            celery_task: AsyncResult = await sync_to_async(check_for_non_workers_task.delay)(self.user.get('username', None))
             self.celery_task_id: str = celery_task.id
+            # we hace to call self.monitor_celery_task(celery_task) with asyncio.create_task instead of await because
+            # then, it wouldnt be cancelable
             asyncio.create_task(self.monitor_celery_task(celery_task))
             print("B")
         else:

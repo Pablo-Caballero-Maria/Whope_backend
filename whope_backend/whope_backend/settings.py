@@ -17,7 +17,6 @@ from dotenv import load_dotenv
 from datetime import timedelta
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.database import Database
-from pymongo import MongoClient
 
 load_dotenv()
 
@@ -153,10 +152,7 @@ async def get_motor_db() -> Database:
     client: AsyncIOMotorClient = AsyncIOMotorClient(uri)
     return client["whope_backend"] if os.getenv("TESTING") == 1 else client["whope_backend_test"]
 
-def get_pymongo_db() -> Database:
-    uri: str = os.getenv(MONGODB_URI)
-    client: MongoClient = MongoClient(uri)
-    return client["whope_backend"] if os.getenv("TESTING") == 1 else client["whope_backend_test"]
+
 
 REST_FRAMEWORK: Dict[str, tuple] = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
