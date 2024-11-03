@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "whope_backend"
+name = "whope"
 version = "0.1.0"
 description = ""
 authors = ["Pablo-Caballero-Maria <pabcabmar3@alum.us.es>"]
@@ -27,9 +27,11 @@ aio-pika = "*"
 black = "*"
 isort = "*"
 
+[tool.black]
+line-length = 256
+
 [tool.isort]
 profile = "black"
-line_length = 88
 
 [build-system]
 requires = ["poetry-core"]
