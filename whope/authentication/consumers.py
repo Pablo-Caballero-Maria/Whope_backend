@@ -5,7 +5,7 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorDatabase
 from passlib.hash import bcrypt
 
-from whope.settings import USERS
+from whope.settings import get_motor_db
 
 
 class AuthenticationConsumer(AsyncWebsocketConsumer):
@@ -33,8 +33,8 @@ class AuthenticationConsumer(AsyncWebsocketConsumer):
         if not password or not username:
             await self.send(json.dumps({"error": "Username and password are required."}))
             return
-
-        user: Dict[str, Any] = await USERS.find_one({"username": username})
+        users: AsyncIOMotorCollection = await self.get_users()
+        user: Dict[str, Any] = await users.find_one({"username": username})
 
         if user is not None:
             await self.send(json.dumps({"error": "User already exists."}))
@@ -59,8 +59,8 @@ class AuthenticationConsumer(AsyncWebsocketConsumer):
         if not password or not username:
             await self.send(json.dumps({"error": "Username and password are required."}))
             return
-
-        user: Dict[str, Any] = await USERS.find_one({"username": username})
+        users: AsyncIOMotorCollection = await self.get_users()
+        user: Dict[str, Any] = await users.find_one({"username": username})
         if not bcrypt.verify(password, user.get("password", None)):
             await self.send(json.dumps({"error": "Invalid password."}))
             return
@@ -82,4 +82,10 @@ class AuthenticationConsumer(AsyncWebsocketConsumer):
         await self.send(json.dumps({"message": "Login successful.", "tokens": tokens}))
 
     async def set_user_status(self, user: Dict[str, Any], status: str) -> None:
-        await USERS.update_one({"_id": user.get("user_id", None)}, {"$set": {"status": status}})
+        users: AsyncIOMotorCollection = await self.get_users()
+        await users.update_one({"_id": user.get("user_id", None)}, {"$set": {"status": status}})
+
+    async def get_users(self) -> AsyncIOMotorCollection:
+        db: AsyncIOMotorDatabase = await get_motor_db()
+        users: AsyncIOMotorCollection = db["users"]
+        return users

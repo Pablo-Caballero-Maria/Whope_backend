@@ -4,13 +4,16 @@ from datetime import datetime, timezone
 from typing import Any, Dict
 from urllib.parse import parse_qs
 
-from aio_pika import Channel, Queue, RobustConnection, connect_robust
+from aio_pika import Channel, IncomingMessage, Queue, RobustConnection, connect_robust
 from asgiref.sync import sync_to_async
 from bson import ObjectId
 from celery.result import AsyncResult
 from channels.generic.websocket import AsyncWebsocketConsumer
 from chat.tasks import check_for_non_workers_task
-from whope.settings import RABBITMQ_URI, USERS
+from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorDatabase
+
+from whope.settings import RABBITMQ_URI, get_motor_db
+
 
 # room_name is the name of the room that the user is connected to.
 # channel_name is the unique identifier of the connection between the user and the room
@@ -75,10 +78,16 @@ class ChatConsumer(AsyncWebsocketConsumer):
             "message": message_content,
             "created_at": datetime.now(timezone.utc),
         }
-        await USERS.update_one(
+        users: AsyncIOMotorCollection = await self.get_users()
+        await users.update_one(
             {"_id": ObjectId(self.user.get("user_id", None))},
             {"$push": {"messages": message}},
         )
+
+    async def get_users(self) -> AsyncIOMotorCollection:
+        db: AsyncIOMotorDatabase = await get_motor_db()
+        users: AsyncIOMotorCollection = db["users"]
+        return users
 
     async def get_user_from_token(self, token: str) -> Dict[str, str]:
         from rest_framework_simplejwt.exceptions import TokenError
@@ -126,13 +135,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_add(new_room_name, free_non_worker.get("channel_name", None))
 
     async def set_user_status(self, user: Dict[str, str], status: str) -> None:
-        await USERS.update_one({"_id": ObjectId(user.get("user_id", None))}, {"$set": {"status": status}})
+        print("seteando status de ", user.get("username", None), " a ", status)
+        users: AsyncIOMotorCollection = await self.get_users()
+        await users.update_one({"_id": ObjectId(user.get("user_id", None))}, {"$set": {"status": status}})
 
     async def save_channel_name(self, user: Dict[str, str], channel_name: str) -> None:
-        await USERS.update_one(
-            {"_id": ObjectId(user.get("user_id", None))},
-            {"$set": {"channel_name": channel_name}},
-        )
+        users: AsyncIOMotorCollection = await self.get_users()
+        await users.update_one({"_id": ObjectId(user.get("user_id", None))}, {"$set": {"channel_name": channel_name}})
         # so that locally its also updated without having to call db again
         self.user["channel_name"]: str = channel_name
 
@@ -156,23 +165,20 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.set_user_status(self.user, "Disconnected")
             await self.close()
 
-
-async def listen_to_rabbit(self) -> None:
-    pika_logger = logging.getLogger("aio_pika")
-    pika_logger.setLevel(logging.ERROR)
-
-    connection: RobustConnection = await connect_robust(RABBITMQ_URI)
-    async with connection:
-        channel: Channel = await connection.channel()
+    async def listen_to_rabbit(self) -> None:
+        connection: RobustConnection = await connect_robust(RABBITMQ_URI)
+        self.rabbit_connection: RobustConnection = connection
+        channel: Channel = await self.rabbit_connection.channel()
         await channel.set_qos(prefetch_count=1)
-
         queue: Queue = await channel.declare_queue(f"{self.user.get('username', None)}_assignment_queue")
 
-        async with queue.iterator() as queue_iter:
-            async for message in queue_iter:
-                async with message.process():
-                    data: Dict[str, str] = json.loads(message.body)
-                    worker_username: str = data.get("worker_username", None)
-                    free_non_worker: str = data.get("free_non_worker", None)
+        async def on_message(message: IncomingMessage) -> None:
+            async with message.process():
+                data: Dict[str, str] = json.loads(message.body)
+                worker_username: str = data.get("worker_username", None)
+                free_non_worker: str = data.get("free_non_worker", None)
+
+                if worker_username == self.user.get("username"):
                     await self.process_non_worker_assignment(worker_username, free_non_worker)
-                    break
+
+        await queue.consume(on_message)

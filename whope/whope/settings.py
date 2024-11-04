@@ -12,11 +12,16 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 
 import os
 from datetime import timedelta
+from logging import ERROR, Logger, getLogger
 from pathlib import Path
 from typing import Any, Dict, List
 
 from dotenv import load_dotenv
-from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
+from motor.motor_asyncio import (
+    AsyncIOMotorClient,
+    AsyncIOMotorCollection,
+    AsyncIOMotorDatabase,
+)
 from pymongo import ASCENDING
 
 load_dotenv()
@@ -145,12 +150,34 @@ RABBITMQ_URI: str = os.getenv("RABBITMQ_URI")
 CELERY_RESULT_BACKEND: str = os.getenv("CELERY_RESULT_BACKEND")
 
 MONGODB_CLIENT: AsyncIOMotorClient = AsyncIOMotorClient(MONGODB_URI)
+# this calling of the database is just done to create the indexes on startup, but then when the database is needed,
+# it will be called with get_motor_db to ensure that its async loop is the same as the one of the method that calls it
 DATABASE: AsyncIOMotorDatabase = MONGODB_CLIENT["whope"]
 DATABASE_TEST: AsyncIOMotorDatabase = MONGODB_CLIENT["whope_test"]
-USERS: AsyncIOMotorCollection = DATABASE["users"]
 
+USERS: AsyncIOMotorCollection = DATABASE["users"]
 USERS.create_index([("username", ASCENDING)], unique=True)
 USERS.create_index([("is_worker", ASCENDING), ("status", ASCENDING)])
+
+USERS_TEST: AsyncIOMotorCollection = DATABASE_TEST["users"]
+USERS_TEST.create_index([("username", ASCENDING)], unique=True)
+USERS_TEST.create_index([("is_worker", ASCENDING), ("status", ASCENDING)])
+
+
+async def get_motor_db() -> AsyncIOMotorDatabase:
+    client: AsyncIOMotorClient = AsyncIOMotorClient(MONGODB_URI)
+    db: AsyncIOMotorDatabase = client["whope"]
+    return db
+
+
+async def get_motor_db_test() -> AsyncIOMotorDatabase:
+    client: AsyncIOMotorClient = AsyncIOMotorClient(MONGODB_URI)
+    db: AsyncIOMotorDatabase = client["whope_test"]
+    return db
+
+
+pika_logger: Logger = getLogger("aio_pika")
+pika_logger.setLevel(ERROR)
 
 REST_FRAMEWORK: Dict[str, tuple] = {
     "DEFAULT_AUTHENTICATION_CLASSES": ("rest_framework_simplejwt.authentication.JWTAuthentication",),
