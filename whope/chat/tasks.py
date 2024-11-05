@@ -15,7 +15,6 @@ from whope.settings import RABBITMQ_URI, get_motor_db
 def check_for_non_workers_task(self, worker_username: str) -> None:
     free_non_worker: Dict[str, str] = async_to_sync(get_free_non_worker)()
     if free_non_worker:
-        print("mandando mensaje")
         async_to_sync(send_message_to_rabbit)(worker_username, free_non_worker)
         return None
     else:
@@ -26,9 +25,7 @@ def check_for_non_workers_task(self, worker_username: str) -> None:
 async def get_free_non_worker() -> Dict[str, str]:
     db: AsyncIOMotorDatabase = await get_motor_db()
     users: AsyncIOMotorCollection = db["users"]
-    print("Looking for free non worker")
     non_workers: Dict[str, str] = await users.find({"is_worker": "False", "status": "Free"}).to_list(None)
-    print(non_workers)
     if non_workers:
         return random.choice(non_workers)
     return None

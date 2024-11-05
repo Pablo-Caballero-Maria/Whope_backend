@@ -135,7 +135,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_add(new_room_name, free_non_worker.get("channel_name", None))
 
     async def set_user_status(self, user: Dict[str, str], status: str) -> None:
-        print("seteando status de ", user.get("username", None), " a ", status)
         users: AsyncIOMotorCollection = await self.get_users()
         await users.update_one({"_id": ObjectId(user.get("user_id", None))}, {"$set": {"status": status}})
 

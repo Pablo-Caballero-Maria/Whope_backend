@@ -154,7 +154,6 @@ MONGODB_CLIENT: AsyncIOMotorClient = AsyncIOMotorClient(MONGODB_URI)
 # it will be called with get_motor_db to ensure that its async loop is the same as the one of the method that calls it
 DATABASE: AsyncIOMotorDatabase = MONGODB_CLIENT["whope"]
 DATABASE_TEST: AsyncIOMotorDatabase = MONGODB_CLIENT["whope_test"]
-print("llamando a settings")
 USERS: AsyncIOMotorCollection = DATABASE["users"]
 USERS.create_index([("username", ASCENDING)], unique=True)
 USERS.create_index([("is_worker", ASCENDING), ("status", ASCENDING)])
