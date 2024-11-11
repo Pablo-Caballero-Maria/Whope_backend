@@ -1,9 +1,8 @@
 import json
-import logging
 from datetime import datetime, timezone
 from typing import Any, Dict
 from urllib.parse import parse_qs
-
+from rest_framework_simplejwt.exceptions import TokenError
 from aio_pika import Channel, IncomingMessage, Queue, RobustConnection, connect_robust
 from asgiref.sync import sync_to_async
 from bson import ObjectId
@@ -11,8 +10,8 @@ from celery.result import AsyncResult
 from channels.generic.websocket import AsyncWebsocketConsumer
 from chat.tasks import check_for_non_workers_task
 from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorDatabase
-
-from whope.settings import RABBITMQ_URI, get_motor_db
+from utils.crypto_utils import decrypt_with_symmetric_key, encrypt_with_symmetric_key, decrypt_with_private_key 
+from whope.settings import RABBITMQ_URI, get_motor_db, PUBLIC_KEY_BYTES, PRIVATE_KEY_BYTES
 
 
 # room_name is the name of the room that the user is connected to.
@@ -20,20 +19,26 @@ from whope.settings import RABBITMQ_URI, get_motor_db
 class ChatConsumer(AsyncWebsocketConsumer):
 
     async def connect(self) -> None:
-        query_string: str = self.scope.get("query_string", None).decode("utf-8")
-        query_params: Dict[str, Any] = parse_qs(query_string)
-        self.token: str = query_params.get("token", [None])[0]
+        # this is just initialization (it must be defined):
+        self.room_name: str = None
+        await self.accept()
+        public_key_pem: str = PUBLIC_KEY_BYTES.decode("utf-8")
+        public_key_clean: str = "".join(public_key_pem.strip().splitlines()[1:-1])
+        await self.send(json.dumps({"public_key": public_key_clean}))
+        query: str = self.scope.get("query_string", None).decode("utf-8")
+        query_params: Dict[str, Any] = parse_qs(query)
+        encrypted_token: str = query_params.get("token", [None])[0]
+        # TODO: en este punto self.symmetric_key debería estar definido pq el cliente lo ha mandado
+        # en caso de que no, rodear este bloque con un while not self.symmetric_key
+        self.token: str = decrypt_with_symmetric_key(encrypted_token.encode("utf-8"), self.symmetric_key)
         self.user: Dict[str, str] = await self.get_user_from_token(self.token)
         # channel_name is automatically set and it needs to be saved so than the worker can add the non_worker to the room
         # once he finds one
         await self.save_channel_name(self.user, self.channel_name)
-        # this is just initialization (it must be defined):
-        self.room_name: str = None
         # users have 3 status: Free (non worker chatting with ai/worker waiting), Busy (worker chatting with non worker or viceversa),
         # Disconnected (not connected to any ws)
         await self.set_user_status(self.user, "Free")
         await self.assign_room()
-        await self.accept()
 
     async def disconnect(self, close_code: int) -> None:
         AsyncResult(self.celery_task_id).revoke(terminate=True) if self.user.get("is_worker", False) == "True" else None
@@ -47,6 +52,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
     async def receive(self, text_data: str) -> None:
         data: Dict[str, str] = json.loads(text_data)
         message: str = data.get("message", None)
+
+        if not message:
+            encrypted_symmetric_key: str = data.get("symmetric_key", "")
+            self.symmetric_key: bytes = decrypt_with_private_key(encrypted_symmetric_key.encode("utf-8"), PRIVATE_KEY_BYTES)
+
         await self.preprocess_message(message, self.user)
         await self.save_message(message)
 
@@ -90,12 +100,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
         return users
 
     async def get_user_from_token(self, token: str) -> Dict[str, str]:
-        from rest_framework_simplejwt.exceptions import TokenError
-        from rest_framework_simplejwt.tokens import UntypedToken
-
         if not token:
             return {"error": "Token must not be empty."}
 
+        from rest_framework_simplejwt.tokens import UntypedToken
         try:
             decoded_token: UntypedToken = UntypedToken(token)
             user_id: str = decoded_token.get("user_id", None)

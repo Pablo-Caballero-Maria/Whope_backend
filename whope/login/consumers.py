@@ -2,7 +2,6 @@ import json
 from typing import Dict
 
 from channels.generic.websocket import AsyncWebsocketConsumer
-from cryptography.fernet import Fernet
 from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorDatabase
 from utils.crypto_utils import decrypt_with_private_key, encrypt_with_symmetric_key, decrypt_with_symmetric_key
 
@@ -39,7 +38,6 @@ class LoginConsumer(AsyncWebsocketConsumer):
             return
 
         from rest_framework_simplejwt.tokens import RefreshToken
-
         refresh: RefreshToken = RefreshToken()
         decrypted_username: str = decrypt_with_symmetric_key(encrypted_username.encode("utf-8"), symmetric_key)
         refresh["username"] = decrypted_username
