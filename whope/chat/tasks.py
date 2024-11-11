@@ -44,7 +44,6 @@ async def send_message_to_rabbit(worker_username: str, free_non_worker: Dict[str
             "worker_username": worker_username,
             "free_non_worker": free_non_worker,
         }
-        print(message)
         await channel.default_exchange.publish(
             Message(
                 body=json.dumps(message).encode(),
