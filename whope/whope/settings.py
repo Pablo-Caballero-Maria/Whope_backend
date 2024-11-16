@@ -24,6 +24,8 @@ from motor.motor_asyncio import (
 )
 from pymongo import ASCENDING
 from utils.crypto_utils import generate_asymmetric_keys
+import string
+import random
 
 load_dotenv()
 
@@ -161,30 +163,20 @@ USERS: AsyncIOMotorCollection = DATABASE["users"]
 USERS.create_index([("username", ASCENDING)], unique=True)
 USERS.create_index([("is_worker", ASCENDING), ("status", ASCENDING)])
 
-# USERS_TEST: AsyncIOMotorCollection = DATABASE_TEST["users"]
-# USERS_TEST.create_index([("username", ASCENDING)], unique=True)
-# USERS_TEST.create_index([("is_worker", ASCENDING), ("status", ASCENDING)])
-
-
 async def get_motor_db() -> AsyncIOMotorDatabase:
     client: AsyncIOMotorClient = AsyncIOMotorClient(MONGODB_URI)
     db: AsyncIOMotorDatabase = client["whope"]
     return db
 
-
-"""
-async def get_motor_db_test() -> AsyncIOMotorDatabase:
-    client: AsyncIOMotorClient = AsyncIOMotorClient(MONGODB_URI)
-    db: AsyncIOMotorDatabase = client["whope_test"]
-    return db
-"""
-
 pika_logger: Logger = getLogger("aio_pika")
 pika_logger.setLevel(ERROR)
 
-PRIVATE_KEY_PASSWORD: bytes = "password".encode("utf-8")
+PRIVATE_KEY_PASSWORD: bytes = bytes("".join(random.choices(string.ascii_letters, k=32)), "utf-8")
 
 PRIVATE_KEY_BYTES, PUBLIC_KEY_BYTES = generate_asymmetric_keys(PRIVATE_KEY_PASSWORD)
+
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_TASK_RESULT_EXPIRES = 0
 
 REST_FRAMEWORK: Dict[str, tuple] = {
     "DEFAULT_AUTHENTICATION_CLASSES": ("rest_framework_simplejwt.authentication.JWTAuthentication",),

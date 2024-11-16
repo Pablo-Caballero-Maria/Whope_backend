@@ -36,7 +36,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          cd whope_backend
+          cd whope
           poetry install
 
       - name: Run tests
@@ -44,5 +44,5 @@ jobs:
           MONGO_URI: ${{secrets.MONGO_URI}}
           SECRET_KEY: ${{secrets.SECRET_KEY}}
         run: |
-          cd whope_backend
+          cd whope
           poetry run pytest -v

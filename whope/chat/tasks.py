@@ -18,7 +18,6 @@ def check_for_non_workers_task(self, worker_username: str) -> None:
         async_to_sync(send_message_to_rabbit)(worker_username, free_non_worker)
         return None
     else:
-        print("looking for non workers")
         raise self.retry()
 
 

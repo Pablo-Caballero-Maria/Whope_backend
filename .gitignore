@@ -1,4 +1,3 @@
 .env
 __pycache__/
-wschat.txt
 poetry.lock

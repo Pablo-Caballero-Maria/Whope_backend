@@ -21,14 +21,10 @@ class LoginConsumer(AsyncWebsocketConsumer):
 
     async def receive(self, text_data: Dict[str, str]) -> None:
         data: Dict[str, str] = json.loads(text_data)
-        print("data received is", data)
-        encrypted_username: str = data.get("username", "")
-        encrypted_password: str = data.get("password", "")
-        encrypted_symmetric_key: str = data.get("symmetric_key", "")
+        encrypted_username: str = data.get("encrypted_username", "")
+        encrypted_password: str = data.get("encrypted_password", "")
+        encrypted_symmetric_key: str = data.get("encrypted_symmetric_key", "")
         symmetric_key: bytes = decrypt_with_private_key(encrypted_symmetric_key.encode("utf-8"), PRIVATE_KEY_BYTES)
-        if not encrypted_password or not encrypted_username:
-            await self.send(json.dumps({"error": "Username and password are required."}))
-            return
 
         users: AsyncIOMotorCollection = await self.get_users()
         user: Dict[str, str] = await users.find_one({"username": encrypted_username})
@@ -40,9 +36,11 @@ class LoginConsumer(AsyncWebsocketConsumer):
         from rest_framework_simplejwt.tokens import RefreshToken
         refresh: RefreshToken = RefreshToken()
         decrypted_username: str = decrypt_with_symmetric_key(encrypted_username.encode("utf-8"), symmetric_key)
+        # no need to store the username encrypted inside the token since the token itself will be encrypted
         refresh["username"] = decrypted_username
+        refresh["is_worker"] = user.get("is_worker", None)
+        refresh["user_id"] = str(user.get("_id", None))
         access_token: str = str(refresh.access_token)
-        print("access token before encryption is", access_token)
         tokens: Dict[str, str] = {
             "refresh": str(refresh),
             "access": encrypt_with_symmetric_key(access_token, symmetric_key),
