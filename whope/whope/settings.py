@@ -55,7 +55,6 @@ INSTALLED_APPS: List[str] = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "channels",
-    "rest_framework",
     "register",
     "login",
     "chat",
@@ -146,7 +145,7 @@ DEFAULT_AUTO_FIELD: str = "django.db.models.BigAutoField"
 
 ASGI_APPLICATION: str = "whope.asgi.application"
 
-HF_TOKEN: str = os.getenv("HF_TOKEN")
+# HF_TOKEN: str = os.getenv("HF_TOKEN")
 
 CHANNEL_LAYERS: Dict[str, Dict[str, Any]] = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
 
