@@ -1,18 +1,14 @@
 import json
-from datetime import datetime, timezone
 from typing import Any, Dict
-from urllib.parse import parse_qs
 from rest_framework_simplejwt.exceptions import TokenError
 from aio_pika import Channel, IncomingMessage, Queue, RobustConnection, connect_robust
 from asgiref.sync import sync_to_async
-from bson import ObjectId
 from celery.result import AsyncResult
 from channels.generic.websocket import AsyncWebsocketConsumer
 from chat.tasks import check_for_non_workers_task
-from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorDatabase
 from utils.crypto_utils import decrypt_with_symmetric_key, encrypt_with_symmetric_key, decrypt_with_private_key 
-from whope.settings import RABBITMQ_URI, get_motor_db, PUBLIC_KEY_BYTES, PRIVATE_KEY_BYTES
-import base64
+from whope.settings import RABBITMQ_URI, PRIVATE_KEY_BYTES
+from utils.db_utils import save_message, get_user_from_token, set_user_status, save_channel_name
 
 # sequence: receive (server receives encrypted symmetric key) -> initialize_connection (server decrypts symmetric key and token)
 # -> assign_room (server assigns room) -> receive (server receives message) -> send_message (server sends message)
@@ -29,13 +25,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
         encrypted_token: str = data.get("encrypted_token", None)
         self.symmetric_key: bytes = decrypt_with_private_key(encrypted_symmetric_key.encode("utf-8"), PRIVATE_KEY_BYTES)
         self.token: str = decrypt_with_symmetric_key(encrypted_token.encode("utf-8"), self.symmetric_key)
-        self.user: Dict[str, str] = await self.get_user_from_token(self.token)
+        self.user: Dict[str, str] = await get_user_from_token(self.token)
         # channel_name is automatically set and it needs to be saved so than the worker can add the non_worker to the room
         # once he finds one
-        await self.save_channel_name(self.user, self.channel_name)
+        await save_channel_name(self.user, self.channel_name)
+        self.user["channel_name"]: str = self.channel_name
         # users have 3 status: Free (non worker chatting with ai/worker waiting), Busy (worker chatting with non worker or viceversa),
         # Disconnected (not connected to any ws)
-        await self.set_user_status(self.user, "Free")
+        await set_user_status(self.user, "Free")
         await self.assign_room()
 
     async def disconnect(self, close_code: int) -> None:
@@ -43,8 +40,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
             AsyncResult(self.celery_task_id).revoke(terminate=True) if self.user.get("is_worker", None) == "True" else None
             self.rabbit_connection.close() if hasattr(self, "rabbit_connection") else None
             await self.channel_layer.group_discard(self.room_name, self.user.get("channel_name", None))
-            await self.save_channel_name(self.user, None)
-            await self.set_user_status(self.user, "Disconnected")
+            await save_channel_name(self.user, None)
+            await set_user_status(self.user, "Disconnected")
             # this message will only be received by the OTHER user
             await self.channel_layer.group_send(self.room_name, {"type": "user_disconnection"})
 
@@ -52,7 +49,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         message: str = data.get("message", None)
         username: str = data.get("username", None)
         await self.preprocess_message(message, self.user)
-        await self.save_message(message)
+        await save_message(message, self.user.get("user_id", None))
 
         await self.channel_layer.group_send(
             self.room_name,
@@ -87,39 +84,19 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.initialize_connection(data)
 
     async def chat_message(self, event: Dict[str, str]) -> None:
-        message: str = event.get("message", None)
-        await self.send(
-            text_data=json.dumps(
-                {
-                    "username": event.get("username", None),
-                    "message": message,
-                }
-            )
-        )
+        encrypted_message: str = event.get("message", None)
+        encrypted_username: str = event.get("username", None)
 
-    async def save_message(self, message_content: str) -> None:
-        message: Dict[str, str] = {
-            "message": message_content,
-            "created_at": datetime.now(timezone.utc),
-        }
-        users: AsyncIOMotorCollection = await self.get_users()
-        await users.update_one(
-            {"_id": ObjectId(self.user.get("user_id", None))},
-            {"$push": {"messages": message}},
-        )
+        is_myself: bool = self.user.get("username", None) == decrypt_with_symmetric_key(encrypted_username.encode("utf-8"), self.symmetric_key)
 
-    async def get_users(self) -> AsyncIOMotorCollection:
-        db: AsyncIOMotorDatabase = await get_motor_db()
-        users: AsyncIOMotorCollection = db["users"]
-        return users
-
-    async def get_user_from_token(self, token: str) -> Dict[str, str]:
-        from rest_framework_simplejwt.tokens import UntypedToken
-        decoded_token: UntypedToken = UntypedToken(token)
-        user_id: str = decoded_token.get("user_id", None)
-        username: str = decoded_token.get("username", None)
-        is_worker: bool = decoded_token.get("is_worker", None)
-        return {"user_id": user_id, "username": username, "is_worker": is_worker}
+        if is_myself:
+            await self.send(text_data=json.dumps({"username": encrypted_username, "message": encrypted_message}))
+        else:
+            decrypted_username: str = decrypt_with_symmetric_key(encrypted_username.encode("utf-8"), self.new_symmetric_key)
+            decrypted_message: str = decrypt_with_symmetric_key(encrypted_message.encode("utf-8"), self.new_symmetric_key)
+            re_encrypted_username: str = encrypt_with_symmetric_key(decrypted_username, self.symmetric_key)
+            re_encrypted_message: str = encrypt_with_symmetric_key(decrypted_message, self.symmetric_key)
+            await self.send(text_data=json.dumps({"username": re_encrypted_username, "message": re_encrypted_message}))
 
     async def assign_room(self) -> None:
         if self.user.get("is_worker", None) == "True":
@@ -136,44 +113,35 @@ class ChatConsumer(AsyncWebsocketConsumer):
         AsyncResult(self.celery_task_id).revoke(terminate=True)
         free_non_worker_username: str = decrypt_with_symmetric_key(free_non_worker.get("username", "").encode("utf-8"), self.symmetric_key)
         new_room_name: str = f"{worker_username}_{free_non_worker_username}_real_room"
-        self.room_name: str = new_room_name
+        # cannot send worker's symmetric key encrypted with itself, cuz then the non worker would need to have the worker's symmetric key anyways
         await self.channel_layer.group_send(
             f"{free_non_worker_username}_virtual_room",
                     {"type": "update_room_name", "new_room_name": new_room_name, "new_symmetric_key": self.symmetric_key},
         )
+        # this must be done after update_room_name is called and therefore the worker receives the non worker symmetric key
+        self.room_name: str = new_room_name
         await self.channel_layer.group_discard(
             f"{free_non_worker_username}_virtual_room",
             free_non_worker.get("channel_name", None),
         )
-        await self.set_user_status(self.user, "Busy")
-        await self.set_user_status(free_non_worker, "Busy")
+        await set_user_status(self.user, "Busy")
+        await set_user_status(free_non_worker, "Busy")
         await self.channel_layer.group_add(new_room_name, self.user.get("channel_name", None))
         await self.channel_layer.group_add(new_room_name, free_non_worker.get("channel_name", None))
 
-    async def set_user_status(self, user: Dict[str, str], status: str) -> None:
-        users: AsyncIOMotorCollection = await self.get_users()
-        await users.update_one({"_id": ObjectId(user.get("user_id", None))}, {"$set": {"status": status}})
-
-    async def save_channel_name(self, user: Dict[str, str], channel_name: str) -> None:
-        users: AsyncIOMotorCollection = await self.get_users()
-        await users.update_one({"_id": ObjectId(user.get("user_id", None))}, {"$set": {"channel_name": channel_name}})
-        # so that locally its also updated without having to call db again
-        self.user["channel_name"]: str = channel_name
-
     async def update_room_name(self, event: Dict[str, Any]) -> None:
         self.room_name: str = event.get("new_room_name", None)
-        # client sends message with his symmetric key and the server do a translation to decrypt it and then
-        # encrypt it with the new symmetric key and send it to the worker (to the non worker is sent with the old symmetric key)
         self.new_symmetric_key: bytes = event.get("new_symmetric_key", None)
-        new_symmetric_key_str = base64.b64encode(self.new_symmetric_key).decode('utf-8')
-        # send new symmetric key to non worker
-        await self.send(
-            text_data=json.dumps(
-                {
-                    "new_symmetric_key": encrypt_with_symmetric_key(new_symmetric_key_str, self.symmetric_key),
-                }
-            )
+        # now the non worker has both symmetric keys, but the worker only has his, so he must receive the non worker's
+        worker_username: str = event.get("new_room_name", "").split("_")[0]
+        await self.channel_layer.group_send(
+            f"{worker_username}_waiting_room",
+            {"type": "update_symmetric_key", "new_symmetric_key": self.symmetric_key},
         )
+
+    async def update_symmetric_key(self, event: Dict[str, Any]) -> None:
+        # this is the worker receiving the non worker's symmetric key
+        self.new_symmetric_key: bytes = event.get("new_symmetric_key", None) 
 
     async def preprocess_message(self, message: str, user: Dict[str, str]):
         await self.send(text_data=json.dumps({"error": "Message must not be empty."})) if not message else None
@@ -185,11 +153,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
     async def user_disconnection(self, event: Dict[str, str]) -> None:
         if self.user.get("is_worker", None) == "True":
             # if the non worker disconnected, the worker goes back to pinging
-            await self.set_user_status(self.user, "Free")
+            await set_user_status(self.user, "Free")
             await self.assign_room()
         else:
             # if the worker disconnected, the non worker closes the connection
-            await self.set_user_status(self.user, "Disconnected")
+            await set_user_status(self.user, "Disconnected")
             await self.close()
 
     async def listen_to_rabbit(self) -> None:

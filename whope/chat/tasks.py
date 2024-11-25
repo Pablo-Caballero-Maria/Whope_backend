@@ -9,7 +9,6 @@ from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorDatabase
 
 from whope.settings import RABBITMQ_URI, get_motor_db
 
-
 # bind=true allows to use "self"
 @shared_task(bind=True, default_retry_delay=1, max_retries=None)
 def check_for_non_workers_task(self, worker_username: str) -> None:
@@ -19,7 +18,6 @@ def check_for_non_workers_task(self, worker_username: str) -> None:
         return None
     else:
         raise self.retry()
-
 
 async def get_free_non_worker() -> Dict[str, str]:
     db: AsyncIOMotorDatabase = await get_motor_db()
