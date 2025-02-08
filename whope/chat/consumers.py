@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict
+from typing import Any, Dict, List
 from rest_framework_simplejwt.exceptions import TokenError
 from aio_pika import Channel, IncomingMessage, Queue, RobustConnection, connect_robust
 from asgiref.sync import sync_to_async
@@ -8,7 +8,9 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from chat.tasks import check_for_non_workers_task
 from utils.crypto_utils import decrypt_with_symmetric_key, encrypt_with_symmetric_key, decrypt_with_private_key 
 from whope.settings import RABBITMQ_URI, PRIVATE_KEY_BYTES
-from utils.db_utils import save_message, get_user_from_token, set_user_status, save_channel_name
+from utils.db_utils import save_message, get_user_from_token, set_user_status, save_channel_name, get_all_messages_from_user, save_message_AI
+from utils.nlp_utils import get_topics_from_message, get_emotions_from_message, generate_answer_from_prompt
+from utils.pip_parser import get_rule_prompt_from_topics_emotions_history
 
 # sequence: receive (server receives encrypted symmetric key) -> initialize_connection (server decrypts symmetric key and token)
 # -> assign_room (server assigns room) -> receive (server receives message) -> send_message (server sends message)
@@ -63,7 +65,23 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if "virtual_room" in self.room_name:
             # TODO: use ai bot here
             decrypted_message: str = decrypt_with_symmetric_key(message.encode("utf-8"), self.symmetric_key)
-            answer: str = f"AI bot says: your message { decrypted_message } has been received."
+            topics: List[str] = get_topics_from_message(decrypted_message) 
+            emotions: List[str] = get_emotions_from_message(decrypted_message)
+            encrypted_messages: List[Dict[str, str]] = await get_all_messages_from_user(self.user.get("user_id", None))
+            # each message has a field "message" with the encrypted content, and some of them have a field "topics", 
+            # "emotions" and "rule_history" (these fields are not encrypted)
+            # each message from decrypted_messages has a topic, an emotion and a rule applied to generate the answer
+            # from among all the messages, I want the last "rule_history" field
+            rule_histories: List[List[str]] = [message.get("rule_history") for message in encrypted_messages if "rule_history" in message]
+            print("rule_histories are: ", rule_histories)
+            rule_history: List[str] = rule_histories[-1] if len(rule_histories) > 0 else []
+            rule_and_prompt: tuple[str, str] = get_rule_prompt_from_topics_emotions_history(topics, emotions, rule_history)
+            new_rule_id: str = rule_and_prompt[0]
+            rule_history.append(new_rule_id)
+            prompt: str = rule_and_prompt[1]
+            answer: str = generate_answer_from_prompt(prompt)
+            await save_message_AI(answer, self.user.get("user_id", None), topics, emotions, rule_history)
+            # answer: str = f"AI bot says: your message { decrypted_message } has been received."
             encrypted_answer: str = encrypt_with_symmetric_key(answer, self.symmetric_key)
             await self.channel_layer.group_send(
                 self.room_name,

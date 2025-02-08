@@ -6,7 +6,7 @@ authors = ["Pablo-Caballero-Maria <pabcabmar3@alum.us.es>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "3.10.14"
+python = "3.12.8"
 django = "*"
 daphne = "*"
 channels = "*"
@@ -16,7 +16,9 @@ djangorestframework-simplejwt = "*"
 motor = "*"
 celery = "*"
 aio-pika = "*"
-
+cleantext = "*"
+transformers = "*"
+tensorflow = "*"
 
 [tool.poetry.group.dev.dependencies]
 black = "*"

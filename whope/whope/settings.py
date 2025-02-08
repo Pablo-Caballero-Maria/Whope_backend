@@ -26,6 +26,8 @@ from pymongo import ASCENDING
 from utils.crypto_utils import generate_asymmetric_keys
 import string
 import random
+from tensorflow.keras.models import load_model
+from transformers import BertTokenizer
 
 load_dotenv()
 
@@ -185,3 +187,20 @@ SIMPLE_JWT: Dict[str, timedelta] = {
     "ACCESS_TOKEN_LIFETIME": timedelta(days=300),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
 }
+
+TOPIC_MODEL_PATH = os.path.join(BASE_DIR, 'models/topics_dense_model.keras')
+TOPIC_MODEL = load_model(TOPIC_MODEL_PATH)
+
+EMOTION_MODEL_PATH = os.path.join(BASE_DIR, 'models/emotions_dense_model.keras')
+EMOTION_MODEL = load_model(EMOTION_MODEL_PATH)
+
+TOKENIZER: BertTokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+
+HF_TOKEN: str = os.getenv("HF_TOKEN")
+
+# TODO: delete this
+# import tensorflow as tf
+# print("Build info", tf.sysconfig.get_build_info())
+# print("Num GPUs Available:", len(tf.config.list_physical_devices('GPU')))
+
+NLM_RULES_PATH: Path = os.path.join(BASE_DIR, 'utils/nlm_rules.pip')

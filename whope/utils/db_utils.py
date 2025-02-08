@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List, Any
 from datetime import datetime, timezone
 from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorDatabase
 from bson.objectid import ObjectId
@@ -9,6 +9,20 @@ async def save_message(message_content: str, user_id: str) -> None:
     message: Dict[str, str] = {
         "message": message_content,
         "created_at": datetime.now(timezone.utc),
+    }
+    users: AsyncIOMotorCollection = await get_users()
+    await users.update_one(
+        {"_id": ObjectId(user_id)},
+        {"$push": {"messages": message}},
+    )
+
+async def save_message_AI(message_content: str, user_id: str, topics: List[str], emotions: List[str], rule_history: List[str]) -> None:
+    message: Dict[str, Any] = {
+        "message": message_content,
+        "created_at": datetime.now(timezone.utc),
+        "topics": topics,
+        "emotions": emotions,
+        "rule_history": rule_history,
     }
     users: AsyncIOMotorCollection = await get_users()
     await users.update_one(
@@ -84,3 +98,9 @@ async def generate_token(data: Dict[str, str]) -> Dict[str, str]:
         "access": encrypt_with_symmetric_key(access_token, symmetric_key),
     }
     return tokens
+
+async def get_all_messages_from_user(user_id: str) -> List[Dict[str, str]]:
+    users: AsyncIOMotorCollection = await get_users()
+    user: Dict[str, str] = await users.find_one({"_id": ObjectId(user_id)})
+    messages: List[Dict[str, str]] = user.get("messages", [])
+    return messages
