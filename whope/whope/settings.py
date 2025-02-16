@@ -11,11 +11,26 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
 import os
+import random
+import string
 from datetime import timedelta
 from logging import ERROR, Logger, getLogger
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
+import numpy as np
+import tensorflow as tf
+from cryptography.hazmat.primitives.asymmetric.rsa import (
+    RSAPrivateKey,
+    RSAPublicKey,
+    generate_private_key,
+)
+from cryptography.hazmat.primitives.serialization import (
+    BestAvailableEncryption,
+    Encoding,
+    PrivateFormat,
+    PublicFormat,
+)
 from dotenv import load_dotenv
 from motor.motor_asyncio import (
     AsyncIOMotorClient,
@@ -23,17 +38,23 @@ from motor.motor_asyncio import (
     AsyncIOMotorDatabase,
 )
 from pymongo import ASCENDING
-from utils.crypto_utils import generate_asymmetric_keys
-import string
-import random
-from tensorflow.keras.models import load_model
-from transformers import BertTokenizer
+from tensorflow.keras.layers import Layer
+from tensorflow.keras.models import Model, load_model
+from transformers import BertTokenizer, TFBertModel
+from utils.boot_utils import (
+    BERT_MODEL,
+    BERT_TOKENIZER,
+    generate_asymmetric_keys,
+    get_custom_objects,
+    init_db,
+    load_knowledge_base,
+    load_nlm_rules,
+)
 
 load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / "subdir".
 BASE_DIR: Path = Path(__file__).resolve().parent.parent
-
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
@@ -147,27 +168,18 @@ DEFAULT_AUTO_FIELD: str = "django.db.models.BigAutoField"
 
 ASGI_APPLICATION: str = "whope.asgi.application"
 
-# HF_TOKEN: str = os.getenv("HF_TOKEN")
-
 CHANNEL_LAYERS: Dict[str, Dict[str, Any]] = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
 
 MONGODB_URI: str = os.getenv("MONGODB_URI")
 RABBITMQ_URI: str = os.getenv("RABBITMQ_URI")
 CELERY_RESULT_BACKEND: str = os.getenv("CELERY_RESULT_BACKEND")
 
-MONGODB_CLIENT: AsyncIOMotorClient = AsyncIOMotorClient(MONGODB_URI)
-# this calling of the database is just done to create the indexes on startup, but then when the database is needed,
-# it will be called with get_motor_db to ensure that its async loop is the same as the one of the method that calls it
-DATABASE: AsyncIOMotorDatabase = MONGODB_CLIENT["whope"]
-# DATABASE_TEST: AsyncIOMotorDatabase = MONGODB_CLIENT["whope_test"]
-USERS: AsyncIOMotorCollection = DATABASE["users"]
-USERS.create_index([("username", ASCENDING)], unique=True)
-USERS.create_index([("is_worker", ASCENDING), ("status", ASCENDING)])
 
 async def get_motor_db() -> AsyncIOMotorDatabase:
     client: AsyncIOMotorClient = AsyncIOMotorClient(MONGODB_URI)
     db: AsyncIOMotorDatabase = client["whope"]
     return db
+
 
 pika_logger: Logger = getLogger("aio_pika")
 pika_logger.setLevel(ERROR)
@@ -188,19 +200,18 @@ SIMPLE_JWT: Dict[str, timedelta] = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
 }
 
-TOPIC_MODEL_PATH = os.path.join(BASE_DIR, 'models/topics_dense_model.keras')
-TOPIC_MODEL = load_model(TOPIC_MODEL_PATH)
+custom_objects: Dict[str, Layer] = get_custom_objects()
+TOPIC_MODEL_PATH: str = os.path.join(BASE_DIR, "models/topics_dense_model.keras")
+TOPIC_MODEL: Model = load_model(TOPIC_MODEL_PATH, custom_objects=custom_objects)
 
-EMOTION_MODEL_PATH = os.path.join(BASE_DIR, 'models/emotions_dense_model.keras')
-EMOTION_MODEL = load_model(EMOTION_MODEL_PATH)
+EMOTION_MODEL_PATH: str = os.path.join(BASE_DIR, "models/emotions_dense_model.keras")
+EMOTION_MODEL: Model = load_model(EMOTION_MODEL_PATH, custom_objects=custom_objects)
 
-TOKENIZER: BertTokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+BERT_MODEL: TFBertModel = BERT_MODEL
+TOKENIZER: BertTokenizer = BERT_TOKENIZER
 
 HF_TOKEN: str = os.getenv("HF_TOKEN")
 
-# TODO: delete this
-# import tensorflow as tf
-# print("Build info", tf.sysconfig.get_build_info())
-# print("Num GPUs Available:", len(tf.config.list_physical_devices('GPU')))
+NLM_RULES: str = load_nlm_rules()
 
-NLM_RULES_PATH: Path = os.path.join(BASE_DIR, 'utils/nlm_rules.pip')
+KNOWLEDGE_DOCUMENTS: List[str] = load_knowledge_base()

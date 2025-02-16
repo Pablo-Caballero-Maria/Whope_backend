@@ -1,16 +1,34 @@
 import json
 from typing import Any, Dict, List
-from rest_framework_simplejwt.exceptions import TokenError
+
 from aio_pika import Channel, IncomingMessage, Queue, RobustConnection, connect_robust
 from asgiref.sync import sync_to_async
 from celery.result import AsyncResult
 from channels.generic.websocket import AsyncWebsocketConsumer
 from chat.tasks import check_for_non_workers_task
-from utils.crypto_utils import decrypt_with_symmetric_key, encrypt_with_symmetric_key, decrypt_with_private_key 
-from whope.settings import RABBITMQ_URI, PRIVATE_KEY_BYTES
-from utils.db_utils import save_message, get_user_from_token, set_user_status, save_channel_name, get_all_messages_from_user, save_message_AI
-from utils.nlp_utils import get_topics_from_message, get_emotions_from_message, generate_answer_from_prompt
+from rest_framework_simplejwt.exceptions import TokenError
+from utils.crypto_utils import (
+    decrypt_with_private_key,
+    decrypt_with_symmetric_key,
+    encrypt_with_symmetric_key,
+)
+from utils.db_utils import (
+    get_all_messages_from_user,
+    get_user_from_token,
+    save_channel_name,
+    save_message,
+    save_message_AI,
+    set_user_status,
+)
+from utils.nlp_utils import (
+    generate_answer_from_prompt,
+    get_emotions_from_message,
+    get_topics_from_message,
+)
 from utils.pip_parser import get_rule_prompt_from_topics_emotions_history
+
+from whope.settings import PRIVATE_KEY_BYTES, RABBITMQ_URI
+
 
 # sequence: receive (server receives encrypted symmetric key) -> initialize_connection (server decrypts symmetric key and token)
 # -> assign_room (server assigns room) -> receive (server receives message) -> send_message (server sends message)
@@ -19,19 +37,19 @@ class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self) -> None:
         # this is just initialization (it must be defined):
         self.room_name: str = None
-        self.user: Dict[str, str] = None
+        self.user: Dict[str, Any] = None
         await self.accept()
 
     async def initialize_connection(self, data: Dict[str, str]) -> None:
         encrypted_symmetric_key: str = data.get("encrypted_symmetric_key", None)
         encrypted_token: str = data.get("encrypted_token", None)
         self.symmetric_key: bytes = decrypt_with_private_key(encrypted_symmetric_key.encode("utf-8"), PRIVATE_KEY_BYTES)
-        self.token: str = decrypt_with_symmetric_key(encrypted_token.encode("utf-8"), self.symmetric_key)
-        self.user: Dict[str, str] = await get_user_from_token(self.token)
+        self.token: str = decrypt_with_symmetric_key(encrypted_token, self.symmetric_key)
+        self.user: Dict[str, Any] = await get_user_from_token(self.token)
         # channel_name is automatically set and it needs to be saved so than the worker can add the non_worker to the room
         # once he finds one
         await save_channel_name(self.user, self.channel_name)
-        self.user["channel_name"]: str = self.channel_name
+        self.user["channel_name"] = self.channel_name
         # users have 3 status: Free (non worker chatting with ai/worker waiting), Busy (worker chatting with non worker or viceversa),
         # Disconnected (not connected to any ws)
         await set_user_status(self.user, "Free")
@@ -64,22 +82,23 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         if "virtual_room" in self.room_name:
             # TODO: use ai bot here
-            decrypted_message: str = decrypt_with_symmetric_key(message.encode("utf-8"), self.symmetric_key)
-            topics: List[str] = get_topics_from_message(decrypted_message) 
+            decrypted_message: str = decrypt_with_symmetric_key(message, self.symmetric_key)
+            topics: List[str] = get_topics_from_message(decrypted_message)
             emotions: List[str] = get_emotions_from_message(decrypted_message)
             encrypted_messages: List[Dict[str, str]] = await get_all_messages_from_user(self.user.get("user_id", None))
-            # each message has a field "message" with the encrypted content, and some of them have a field "topics", 
+            # each message has a field "message" with the encrypted content, and some of them have a field "topics",
             # "emotions" and "rule_history" (these fields are not encrypted)
             # each message from decrypted_messages has a topic, an emotion and a rule applied to generate the answer
             # from among all the messages, I want the last "rule_history" field
             rule_histories: List[List[str]] = [message.get("rule_history") for message in encrypted_messages if "rule_history" in message]
-            print("rule_histories are: ", rule_histories)
-            rule_history: List[str] = rule_histories[-1] if len(rule_histories) > 0 else []
+            # if the last message has no history because it comes from a conversation with a human from a previous day, then
+            # we start from 0 with an empty history
+            rule_history: List[str] = rule_histories[-1] if len(rule_histories) > 0 and encrypted_messages[-1].get("history") is None else []
             rule_and_prompt: tuple[str, str] = get_rule_prompt_from_topics_emotions_history(topics, emotions, rule_history)
             new_rule_id: str = rule_and_prompt[0]
             rule_history.append(new_rule_id)
             prompt: str = rule_and_prompt[1]
-            answer: str = generate_answer_from_prompt(prompt)
+            answer: str = generate_answer_from_prompt(prompt, decrypted_message)
             await save_message_AI(answer, self.user.get("user_id", None), topics, emotions, rule_history)
             # answer: str = f"AI bot says: your message { decrypted_message } has been received."
             encrypted_answer: str = encrypt_with_symmetric_key(answer, self.symmetric_key)
@@ -105,13 +124,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
         encrypted_message: str = event.get("message", None)
         encrypted_username: str = event.get("username", None)
 
-        is_myself: bool = self.user.get("username", None) == decrypt_with_symmetric_key(encrypted_username.encode("utf-8"), self.symmetric_key)
+        is_myself: bool = self.user.get("username", None) == decrypt_with_symmetric_key(encrypted_username, self.symmetric_key)
 
         if is_myself:
             await self.send(text_data=json.dumps({"username": encrypted_username, "message": encrypted_message}))
         else:
-            decrypted_username: str = decrypt_with_symmetric_key(encrypted_username.encode("utf-8"), self.new_symmetric_key)
-            decrypted_message: str = decrypt_with_symmetric_key(encrypted_message.encode("utf-8"), self.new_symmetric_key)
+            decrypted_username: str = decrypt_with_symmetric_key(encrypted_username, self.new_symmetric_key)
+            decrypted_message: str = decrypt_with_symmetric_key(encrypted_message, self.new_symmetric_key)
             re_encrypted_username: str = encrypt_with_symmetric_key(decrypted_username, self.symmetric_key)
             re_encrypted_message: str = encrypt_with_symmetric_key(decrypted_message, self.symmetric_key)
             await self.send(text_data=json.dumps({"username": re_encrypted_username, "message": re_encrypted_message}))
@@ -127,14 +146,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         await self.channel_layer.group_add(self.room_name, self.user.get("channel_name", None))
 
-    async def process_non_worker_assignment(self, worker_username, free_non_worker):
+    async def process_non_worker_assignment(self, worker_username: str, free_non_worker: Dict[str, Any]):
         AsyncResult(self.celery_task_id).revoke(terminate=True)
-        free_non_worker_username: str = decrypt_with_symmetric_key(free_non_worker.get("username", "").encode("utf-8"), self.symmetric_key)
+        free_non_worker_username: str = decrypt_with_symmetric_key(free_non_worker.get("username", ""), self.symmetric_key)
         new_room_name: str = f"{worker_username}_{free_non_worker_username}_real_room"
         # cannot send worker's symmetric key encrypted with itself, cuz then the non worker would need to have the worker's symmetric key anyways
         await self.channel_layer.group_send(
             f"{free_non_worker_username}_virtual_room",
-                    {"type": "update_room_name", "new_room_name": new_room_name, "new_symmetric_key": self.symmetric_key},
+            {"type": "update_room_name", "new_room_name": new_room_name, "new_symmetric_key": self.symmetric_key},
         )
         # this must be done after update_room_name is called and therefore the worker receives the non worker symmetric key
         self.room_name: str = new_room_name
@@ -159,9 +178,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     async def update_symmetric_key(self, event: Dict[str, Any]) -> None:
         # this is the worker receiving the non worker's symmetric key
-        self.new_symmetric_key: bytes = event.get("new_symmetric_key", None) 
+        self.new_symmetric_key: bytes = event.get("new_symmetric_key", None)
 
-    async def preprocess_message(self, message: str, user: Dict[str, str]):
+    async def preprocess_message(self, message: str, user: Dict[str, Any]):
         await self.send(text_data=json.dumps({"error": "Message must not be empty."})) if not message else None
         # if theres an error with the token and i have to send the error response, i cannot do it before here (in get_user_from_token or in connect)
         # cuz the channel isnt even open
