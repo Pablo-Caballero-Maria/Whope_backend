@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
-from typing import List, Tuple
-
+from typing import List, Tuple, Any, Dict, Type
+import tensorflow as tf
 import numpy as np
 from cryptography.hazmat.primitives.asymmetric.rsa import (
     RSAPrivateKey,
@@ -71,47 +71,48 @@ BERT_TOKENIZER: BertTokenizer = BertTokenizer.from_pretrained(MODEL_NAME)
 
 def get_custom_objects():
     class BertModelWrapper(Layer):
-        def __init__(self, bert_model, **kwargs):
+        def __init__(self, bert_model: TFBertModel, **kwargs: Any):
             super().__init__(**kwargs)
-            self.bert_model = bert_model
+            self.bert_model: TFBertModel = bert_model
 
-        def call(self, inputs):
+        def call(self, inputs: List[tf.Tensor]) -> tf.Tensor:
             # inputs comes as a list of [input_ids, attention_mask]
-            input_ids, attention_mask = inputs
+            input_ids: tf.Tensor = inputs[0]
+            attention_mask: tf.Tensor = inputs[1]
             # Now call the underlying BERT model.
             # Make sure to use return_dict=False so that the output is a tuple.
-            bert_outputs = self.bert_model(input_ids=input_ids, attention_mask=attention_mask, return_dict=False)
+            bert_outputs: Tuple[tf.Tensor] = self.bert_model(input_ids=input_ids, attention_mask=attention_mask, return_dict=False)
             # return just the last_hidden_state
             return bert_outputs[0]
 
         def get_config(self):
-            config = super().get_config()
+            config: Dict[str, Any] = super().get_config()
             config.update({"bert_model_name": getattr(self.bert_model, "name_or_path", None)})
             return config
 
         @classmethod
-        def from_config(cls, config):
+        def from_config(cls: Type["BertModelWrapper"], config: Dict[str, Any]) -> "BertModelWrapper":
             config.pop("bert_model_name", None)
             return cls(BERT_MODEL, **config)
 
     class CLSExtractor(Layer):
-        def call(self, inputs):
+        def call(self, inputs: tf.Tensor) -> tf.Tensor:
             return inputs[:, 0, :]
 
     class PositionalEncodingAdder(Layer):
-        def __init__(self, pos_encoding: np.ndarray, **kwargs):
+        def __init__(self, pos_encoding: np.ndarray, **kwargs) -> None:
             super().__init__(**kwargs)
             # Convert the numpy encoding to a constant tensor
-            self.pos_encoding = tf.constant(pos_encoding, dtype=tf.float32)
+            self.pos_encoding: tf.Tensor = tf.constant(pos_encoding, dtype=tf.float32)
 
-        def call(self, inputs):
+        def call(self, inputs: tf.Tensor) -> tf.Tensor:
             # Add the positional encoding for the [CLS] position.
             # Since inputs shape is (batch, EMBED_DIM) and pos_encoding is (SEQ_LEN, EMBED_DIM),
             # we add only the first row.
             return inputs + self.pos_encoding[0]
 
-        def get_config(self):
-            config = super().get_config()
+        def get_config(self) -> Dict[str, Any]:
+            config: Dict[str, Any]= super().get_config()
             config.update({"pos_encoding": self.pos_encoding.numpy().tolist()})
             return config
 

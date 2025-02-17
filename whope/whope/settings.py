@@ -188,8 +188,8 @@ PRIVATE_KEY_PASSWORD: bytes = bytes("".join(random.choices(string.ascii_letters,
 
 PRIVATE_KEY_BYTES, PUBLIC_KEY_BYTES = generate_asymmetric_keys(PRIVATE_KEY_PASSWORD)
 
-CELERY_TASK_IGNORE_RESULT = True
-CELERY_TASK_RESULT_EXPIRES = 0
+CELERY_TASK_IGNORE_RESULT: bool = True
+CELERY_TASK_RESULT_EXPIRES: int = 0
 
 REST_FRAMEWORK: Dict[str, tuple] = {
     "DEFAULT_AUTHENTICATION_CLASSES": ("rest_framework_simplejwt.authentication.JWTAuthentication",),

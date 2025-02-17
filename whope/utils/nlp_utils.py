@@ -29,9 +29,9 @@ def preprocess(text: str) -> str:
 
 def predict_from_message(message: str, model: Any) -> List[int]:
     cleaned_message: str = preprocess(message)
-    encoded_inputs = TOKENIZER(cleaned_message, padding=True, truncation=True, max_length=100, return_tensors="tf")
+    encoded_inputs = TOKENIZER(cleaned_message, padding="max_length", truncation=True, max_length=100, return_tensors="tf")
 
-    prediction: List[float] = model.predict(encoded_inputs["input_ids"])
+    prediction: List[float] = model.predict([encoded_inputs["input_ids"], encoded_inputs["attention_mask"]])
     # prediction = [0.6, 0.1, 0.3]
     # get indexes of those values greater than 0.5
     threshold: float = 0.5
@@ -65,7 +65,7 @@ def get_relevant_documents(message: str, top_n: int) -> List[str]:
         cleaned_document: str = preprocess(document)
         encoded_document: Dict[str, Any] = TOKENIZER(cleaned_document, padding=True, truncation=True, max_length=100, return_tensors="tf")
         document_embeddings: np.ndarray = BERT_MODEL(encoded_document["input_ids"]).last_hidden_state[:, 0, :].numpy()
-        similarity: float = cosine_similarity([message_embeddings], [document_embeddings])[0][0]
+        similarity: float = cosine_similarity(message_embeddings, document_embeddings)[0][0]
         relevant_documents[document] = similarity
 
     return sorted(relevant_documents, key=relevant_documents.get, reverse=True)[:top_n]
@@ -75,11 +75,11 @@ def generate_answer_from_prompt(prompt: str, message: str) -> str:
     # "message" is the unencrypted message content, needed for RAG
     client: InferenceClient = InferenceClient(api_key=HF_TOKEN)
     model_name: str = "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B"
-    relevant_documents: List[str] = get_relevant_documents(message, 3)
+    relevant_documents: List[str] = get_relevant_documents(message, 1)
     full_prompt: str = f"{prompt} \n Context documents: \n {' '.join(relevant_documents)}"
     messages = [{"role": "user", "content": full_prompt}]
     completion: str = client.chat.completions.create(model=model_name, messages=messages, max_tokens=500)
     response: str = completion.choices[0].message.content
-    print("DeepSeek response: ", response)
+    print("Deepseek response: ", response)
     response_clean: str = response.split("</think>")[1]
     return response_clean
