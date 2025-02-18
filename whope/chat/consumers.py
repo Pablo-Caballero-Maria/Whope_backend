@@ -126,7 +126,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         is_myself: bool = self.user.get("username", None) == decrypt_with_symmetric_key(encrypted_username, self.symmetric_key)
 
-        if is_myself:
+        if is_myself or "virtual_room" in self.room_name:
             await self.send(text_data=json.dumps({"username": encrypted_username, "message": encrypted_message}))
         else:
             decrypted_username: str = decrypt_with_symmetric_key(encrypted_username, self.new_symmetric_key)
