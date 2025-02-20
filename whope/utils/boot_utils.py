@@ -79,8 +79,6 @@ def get_custom_objects():
             # inputs comes as a list of [input_ids, attention_mask]
             input_ids: tf.Tensor = inputs[0]
             attention_mask: tf.Tensor = inputs[1]
-            # Now call the underlying BERT model.
-            # Make sure to use return_dict=False so that the output is a tuple.
             bert_outputs: Tuple[tf.Tensor] = self.bert_model(input_ids=input_ids, attention_mask=attention_mask, return_dict=False)
             # return just the last_hidden_state
             return bert_outputs[0]
