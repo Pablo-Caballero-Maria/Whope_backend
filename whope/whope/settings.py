@@ -49,6 +49,7 @@ from utils.boot_utils import (
     init_db,
     load_knowledge_base,
     load_nlm_rules,
+    setup_vector_database,
 )
 
 load_dotenv()
@@ -207,11 +208,19 @@ TOPIC_MODEL: Model = load_model(TOPIC_MODEL_PATH, custom_objects=custom_objects)
 EMOTION_MODEL_PATH: str = os.path.join(BASE_DIR, "models/emotions_dense_model.keras")
 EMOTION_MODEL: Model = load_model(EMOTION_MODEL_PATH, custom_objects=custom_objects)
 
+MENTALL_ILLNESS_MODEL_PATH: str = os.path.join(BASE_DIR, "models/mental_illness_dense_model.keras")
+MENTALL_ILLNESS_MODEL: Model = load_model(EMOTION_MODEL_PATH, custom_objects=custom_objects)
+
 BERT_MODEL: TFBertModel = BERT_MODEL
-TOKENIZER: BertTokenizer = BERT_TOKENIZER
+BERT_TOKENIZER: BertTokenizer = BERT_TOKENIZER
 
 HF_TOKEN: str = os.getenv("HF_TOKEN")
 
 NLM_RULES: str = load_nlm_rules()
 
-KNOWLEDGE_DOCUMENTS: List[str] = load_knowledge_base()
+import asyncio
+
+if __name__ != "__main__":
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(init_db())
+    loop.run_until_complete(load_knowledge_base())

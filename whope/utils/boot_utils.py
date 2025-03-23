@@ -1,8 +1,9 @@
 import os
 from pathlib import Path
-from typing import List, Tuple, Any, Dict, Type
-import tensorflow as tf
+from typing import Any, Dict, List, Tuple, Type
+
 import numpy as np
+import tensorflow as tf
 from cryptography.hazmat.primitives.asymmetric.rsa import (
     RSAPrivateKey,
     RSAPublicKey,
@@ -54,14 +55,18 @@ def load_nlm_rules() -> str:
         return f.read()
 
 
-def load_knowledge_base() -> List[str]:
+async def load_knowledge_base() -> None:
+    from whope.settings import get_motor_db
+
+    # call it only if collection "vector_documents" does not exist
+    db: AsyncIOMotorDatabase = await get_motor_db()
+    collections: List[str] = await db.list_collection_names()
+    await setup_vector_database() if "vector_documents" not in collections else None
+
     directory: Path = Path(os.path.join(BASE_DIR, "knowledge_base"))
-    knowledge_base = []
     for file in directory.iterdir():
         with open(file, "r") as f:
-            knowledge_base.append(f.read())
-
-    return knowledge_base
+            await store_document_with_embedding(f.read())
 
 
 MODEL_NAME: str = "google/bert_uncased_L-2_H-128_A-2"
@@ -110,10 +115,34 @@ def get_custom_objects():
             return inputs + self.pos_encoding[0]
 
         def get_config(self) -> Dict[str, Any]:
-            config: Dict[str, Any]= super().get_config()
+            config: Dict[str, Any] = super().get_config()
             config.update({"pos_encoding": self.pos_encoding.numpy().tolist()})
             return config
 
     custom_objects = {"BertModelWrapper": BertModelWrapper, "PositionalEncodingAdder": PositionalEncodingAdder, "CLSExtractor": CLSExtractor}
 
     return custom_objects
+
+
+async def setup_vector_database():
+    from whope.settings import get_motor_db
+
+    db: AsyncIOMotorDatabase = await get_motor_db()
+
+    # Store documents with their embeddings
+    await db.create_collection("vector_documents")
+    # Create vector index
+    await db.command({"createIndexes": "vector_documents", "indexes": [{"name": "vector_index", "key": {"embedding": 1}}]})
+
+
+async def store_document_with_embedding(document):
+    from utils.nlp_utils import preprocess
+
+    from whope.settings import BERT_MODEL, BERT_TOKENIZER, get_motor_db
+
+    db: AsyncIOMotorDatabase = await get_motor_db()
+    cleaned_document: str = preprocess(document)
+    encoded_document: str = BERT_TOKENIZER(cleaned_document, padding=True, truncation=True, max_length=100, return_tensors="tf")
+    embeddings: list[float] = BERT_MODEL(encoded_document["input_ids"]).last_hidden_state[:, 0, :].numpy().tolist()[0]
+
+    await db.vector_documents.insert_one({"content": document, "embedding": embeddings})

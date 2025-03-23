@@ -1,52 +1,70 @@
-from kagglehub import dataset_download
-from datasets import load_dataset, DatasetDict
-import pandas as pd
-import numpy as np
-from cleantext import clean
-from transformers import BertTokenizer, TFBertModel
-import tensorflow as tf
-from tensorflow.data import AUTOTUNE, Dataset
-from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import train_test_split
-from tensorflow.keras.models import Model
-from tensorflow.keras.initializers import HeNormal
-from tensorflow.keras.layers import Dense, GlobalAveragePooling1D, BatchNormalization, Dropout, Input, Bidirectional, LSTM, MultiHeadAttention, LayerNormalization, Add, Activation, Layer
-from tensorflow.keras import backend as K
-import keras_tuner as kt
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import EarlyStopping, History
-import json
 import gc
-from typing import Any, Dict, Tuple, List
+import json
+from typing import Any, Dict, List, Tuple
+
+import keras_tuner as kt
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+from cleantext import clean
+from datasets import DatasetDict, load_dataset
+from kagglehub import dataset_download
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from tensorflow.data import AUTOTUNE, Dataset
+from tensorflow.keras import backend as K
+from tensorflow.keras.callbacks import EarlyStopping, History
+from tensorflow.keras.initializers import HeNormal
+from tensorflow.keras.layers import (
+    LSTM,
+    Activation,
+    Add,
+    BatchNormalization,
+    Bidirectional,
+    Dense,
+    Dropout,
+    GlobalAveragePooling1D,
+    Input,
+    Layer,
+    LayerNormalization,
+    MultiHeadAttention,
+)
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
+from transformers import BertTokenizer, TFBertModel
 
 # EMBED_DIM: int = 768 # (bert embeddings)
-EMBED_DIM: int = 128 # (google tiny bert embeddings)
-VOCAB_SIZE: int = 30522 # (bert tokenizer)
+EMBED_DIM: int = 128  # (google tiny bert embeddings)
+VOCAB_SIZE: int = 30522  # (bert tokenizer)
 SEQ_LEN: int = 100
 EXAMPLE_LIMIT: int = 50000
 TOPIC_NUMBER: int = 6
 EMOTIONS_NUMBER: int = 13
 BATCH_SIZE: int = 32
 
+
 def read_dataset_hf() -> DatasetDict:
     dataset: DatasetDict = load_dataset("community-datasets/yahoo_answers_topics")
     return dataset
+
 
 def read_dataset_kaggle() -> pd.DataFrame:
     path: str = dataset_download("simaanjali/emotion-analysis-based-on-text")
     dataset: pd.DataFrame = pd.read_csv(f"{path}/emotion_sentimen_dataset.csv")
     return dataset
 
-def preprocess(text: str) -> str:
-    regex_url: str = r'http\S+|www\S+|https\S+'
-    regex_mentions: str = r'#\w+'
-    regex_hashtags: str = r'#\w+'
-    regex_non_alphanumeric: str = r'[^A-Za-z0-9\s]'
-    regex_combined: str = r'|'.join((regex_url, regex_mentions, regex_hashtags, regex_non_alphanumeric))
 
-    cleaned_text: str = clean(text, clean_all=True, reg=regex_combined, reg_replace='')
+def preprocess(text: str) -> str:
+    regex_url: str = r"http\S+|www\S+|https\S+"
+    regex_mentions: str = r"#\w+"
+    regex_hashtags: str = r"#\w+"
+    regex_non_alphanumeric: str = r"[^A-Za-z0-9\s]"
+    regex_combined: str = r"|".join((regex_url, regex_mentions, regex_hashtags, regex_non_alphanumeric))
+
+    cleaned_text: str = clean(text, clean_all=True, reg=regex_combined, reg_replace="")
 
     return cleaned_text
+
 
 def transform_dataset_hf(dataset: DatasetDict, tokenizer: BertTokenizer) -> Tuple[Dict[str, Any], np.ndarray]:
     # combine train and test split from huggingface
@@ -69,6 +87,7 @@ def transform_dataset_hf(dataset: DatasetDict, tokenizer: BertTokenizer) -> Tupl
 
     return encoded_inputs, topics
 
+
 def transform_dataset_kaggle(dataset: pd.DataFrame, tokenizer: BertTokenizer) -> Tuple[Dict[str, Any], np.ndarray]:
     # "dataset" is a pandas dataset
     dataset: pd.DataFrame = dataset[:EXAMPLE_LIMIT]
@@ -83,16 +102,15 @@ def transform_dataset_kaggle(dataset: pd.DataFrame, tokenizer: BertTokenizer) ->
 
     return encoded_inputs, emotions
 
+
 def convert_to_tf_dataset(x: Dict[str, Any], y: np.ndarray, batch_size: int) -> Dataset:
     # Cast inputs to tf.int32 to match BERT's requirements.
-    inputs: Dict[str, Any] = {
-        "input_ids": tf.cast(x["input_ids"], tf.int32), 
-        "attention_mask": tf.cast(x["attention_mask"], tf.int32)
-    }
+    inputs: Dict[str, Any] = {"input_ids": tf.cast(x["input_ids"], tf.int32), "attention_mask": tf.cast(x["attention_mask"], tf.int32)}
     dataset: Dataset = Dataset.from_tensor_slices((inputs, y))
 
     dataset: Dataset = dataset.batch(batch_size).prefetch(AUTOTUNE)
     return dataset
+
 
 class BertModelWrapper(Layer):
     def __init__(self, bert_model, **kwargs):
@@ -107,7 +125,7 @@ class BertModelWrapper(Layer):
         bert_outputs = self.bert_model(input_ids=input_ids, attention_mask=attention_mask, return_dict=False)
         # return just the last_hidden_state
         return bert_outputs[0]
-    
+
     def get_config(self):
         config = super().get_config()
         config.update({"bert_model_name": getattr(self.bert_model, "name_or_path", None)})
@@ -122,14 +140,16 @@ class BertModelWrapper(Layer):
             bert_model = None
         return cls(bert_model, **config)
 
+
 class CLSExtractor(Layer):
     def call(self, inputs):
         return inputs[:, 0, :]
 
+
 def build_model_dense(hp: kt.HyperParameters, task: str, bert_model: TFBertModel) -> Model:
     output_dim: int = EMOTIONS_NUMBER if task == "emotions" else TOPIC_NUMBER
-    dense_units: int = hp.Int('dense_units', min_value=32, max_value=128, step=16)
-    drop_rate: float = hp.Float('drop_rate', min_value=0.1, max_value=0.5, step=0.1)
+    dense_units: int = hp.Int("dense_units", min_value=32, max_value=128, step=16)
+    drop_rate: float = hp.Float("drop_rate", min_value=0.1, max_value=0.5, step=0.1)
 
     # Input layers for BERT (the names are important because BERT expect those names)
     # we have to set dtype because BERT expects that type, and otherwise it would be casted to float32
@@ -152,20 +172,17 @@ def build_model_dense(hp: kt.HyperParameters, task: str, bert_model: TFBertModel
     # Define the model
     model: Model = Model(inputs=[input_ids, attention_mask], outputs=output)
 
-    model.compile(
-        optimizer=Adam(learning_rate=hp.Float('learning_rate', min_value=1e-4, max_value=1e-2, sampling='LOG')),
-        loss="sparse_categorical_crossentropy",
-        metrics=['accuracy']
-    )
+    model.compile(optimizer=Adam(learning_rate=hp.Float("learning_rate", min_value=1e-4, max_value=1e-2, sampling="LOG")), loss="sparse_categorical_crossentropy", metrics=["accuracy"])
 
     return model
+
 
 def build_model_recurrent(hp: kt.HyperParameters, task: str, bert_model: TFBertModel) -> Model:
     output_dim: int = EMOTIONS_NUMBER if task == "emotions" else TOPIC_NUMBER
 
-    rnn_units: int = hp.Int('rnn_units', min_value=8, max_value=64, step=8)
-    dense_units: int = hp.Int('dense_units', min_value=8, max_value=64, step=8)
-    drop_rate: float = hp.Float('drop_rate', min_value=0.1, max_value=0.5, step=0.1)
+    rnn_units: int = hp.Int("rnn_units", min_value=8, max_value=64, step=8)
+    dense_units: int = hp.Int("dense_units", min_value=8, max_value=64, step=8)
+    drop_rate: float = hp.Float("drop_rate", min_value=0.1, max_value=0.5, step=0.1)
 
     # Input layers for BERT (the names are important because BERT expect those names)
     # we have to set dtype because BERT expects that type, and otherwise it would be casted to float32
@@ -177,22 +194,19 @@ def build_model_recurrent(hp: kt.HyperParameters, task: str, bert_model: TFBertM
 
     # BiLSTM processing of BERT embeddings
     lstm_out = Bidirectional(LSTM(rnn_units, dropout=drop_rate, recurrent_dropout=drop_rate))(last_hidden_state)
-    x = Dense(dense_units, activation='relu', kernel_initializer=HeNormal())(lstm_out)
+    x = Dense(dense_units, activation="relu", kernel_initializer=HeNormal())(lstm_out)
     x = BatchNormalization()(x)
     x = Dropout(drop_rate)(x)
 
-    output = Dense(output_dim, activation='softmax')(x)
+    output = Dense(output_dim, activation="softmax")(x)
 
     # Define the model
     model: Model = Model(inputs=[input_ids, attention_mask], outputs=output)
 
-    model.compile(
-        optimizer=Adam(learning_rate=hp.Float('learning_rate', min_value=1e-4, max_value=1e-2, sampling='LOG')),
-        loss="sparse_categorical_crossentropy",
-        metrics=['accuracy']
-    )
+    model.compile(optimizer=Adam(learning_rate=hp.Float("learning_rate", min_value=1e-4, max_value=1e-2, sampling="LOG")), loss="sparse_categorical_crossentropy", metrics=["accuracy"])
 
     return model
+
 
 def positional_encoding(seq_len: int, embed_dim: int) -> np.ndarray:
     # Create a range of positions (0, 1, 2, ..., seq_len-1) and then reshape it to (seq_len, 1)
@@ -207,11 +221,13 @@ def positional_encoding(seq_len: int, embed_dim: int) -> np.ndarray:
     pos_encoding[:, 1::2] = np.cos(position * div_term)
     return pos_encoding
 
+
 class PositionalEncodingAdder(Layer):
     def __init__(self, pos_encoding: np.ndarray, **kwargs):
         super().__init__(**kwargs)
         # Convert the numpy encoding to a constant tensor
         self.pos_encoding = tf.constant(pos_encoding, dtype=tf.float32)
+
     def call(self, inputs):
         # Add the positional encoding for the [CLS] position.
         # Since inputs shape is (batch, EMBED_DIM) and pos_encoding is (SEQ_LEN, EMBED_DIM),
@@ -223,12 +239,13 @@ class PositionalEncodingAdder(Layer):
         config.update({"pos_encoding": self.pos_encoding.numpy().tolist()})
         return config
 
+
 def build_model_transformer(hp: kt.HyperParameters, task: str, bert_model: TFBertModel) -> Model:
     output_dim: int = EMOTIONS_NUMBER if task == "emotions" else TOPIC_NUMBER
 
-    num_heads: int = hp.Int('num_heads', min_value=2, max_value=8, step=2)
-    dense_units: int = hp.Int('dense_units', min_value=32, max_value=128, step=16)
-    drop_rate: float = hp.Float('drop_rate', min_value=0.1, max_value=0.5, step=0.1)
+    num_heads: int = hp.Int("num_heads", min_value=2, max_value=8, step=2)
+    dense_units: int = hp.Int("dense_units", min_value=32, max_value=128, step=16)
+    drop_rate: float = hp.Float("drop_rate", min_value=0.1, max_value=0.5, step=0.1)
 
     # Positional encoding
     pos_encoding: np.ndarray = positional_encoding(SEQ_LEN, EMBED_DIM)
@@ -242,7 +259,7 @@ def build_model_transformer(hp: kt.HyperParameters, task: str, bert_model: TFBer
     last_hidden_state = BertModelWrapper(bert_model)([input_ids, attention_mask])
 
     # Add positional encoding using the custom layer instead of a Lambda
-    x = PositionalEncodingAdder(pos_encoding)(last_hidden_state)  
+    x = PositionalEncodingAdder(pos_encoding)(last_hidden_state)
 
     # Multi-head attention
     attn_output = MultiHeadAttention(num_heads=num_heads, key_dim=EMBED_DIM)(x, x, attention_mask=attention_mask[:, None, None, :])
@@ -266,62 +283,59 @@ def build_model_transformer(hp: kt.HyperParameters, task: str, bert_model: TFBer
     # Create model
     model: Model = Model(inputs=[input_ids, attention_mask], outputs=outputs)
 
-    model.compile(
-        optimizer=Adam(learning_rate=hp.Float('learning_rate', min_value=1e-4, max_value=1e-2, sampling='LOG')),
-        loss="sparse_categorical_crossentropy",
-        metrics=['accuracy']
-    )
+    model.compile(optimizer=Adam(learning_rate=hp.Float("learning_rate", min_value=1e-4, max_value=1e-2, sampling="LOG")), loss="sparse_categorical_crossentropy", metrics=["accuracy"])
 
     return model
+
 
 def build_tuner(model_type: str, task: str, bert_model: TFBertModel) -> kt.Tuner:
     model_builder: Any = None
 
     match model_type:
         case "dense":
-            model_builder = lambda hp : build_model_dense(hp, task, bert_model)
+            model_builder = lambda hp: build_model_dense(hp, task, bert_model)
         case "recurrent":
-            model_builder = lambda hp : build_model_recurrent(hp, task, bert_model)
+            model_builder = lambda hp: build_model_recurrent(hp, task, bert_model)
         case "transformer":
-            model_builder = lambda hp : build_model_transformer(hp, task, bert_model)
+            model_builder = lambda hp: build_model_transformer(hp, task, bert_model)
         case _:
             raise ValueError("Invalid model type")
 
     # default trials is 10
     tuner: kt.Tuner = kt.BayesianOptimization(
         model_builder,
-        objective='val_loss',
+        objective="val_loss",
         overwrite=True,
     )
 
     return tuner
+
 
 def get_hps(train_dataset: Dataset, val_dataset: Dataset, tuner: kt.Tuner) -> kt.HyperParameters:
     tuner.search(train_dataset, validation_data=val_dataset)
     best_hps: kt.HyperParameters = tuner.get_best_hyperparameters()[0]
     return best_hps
 
+
 def train_model(train_dataset: Dataset, val_dataset: Dataset, tuner: kt.Tuner, best_hps: kt.HyperParameters) -> Tuple[Model, History]:
     model: Model = tuner.hypermodel.build(best_hps)
-    early_stopping: EarlyStopping = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
+    early_stopping: EarlyStopping = EarlyStopping(monitor="val_loss", patience=3, restore_best_weights=True)
 
-    history: History = model.fit(
-        train_dataset,
-        epochs=20,
-        validation_data=val_dataset,
-        callbacks=[early_stopping]
-        )
+    history: History = model.fit(train_dataset, epochs=20, validation_data=val_dataset, callbacks=[early_stopping])
 
     return model, history
+
 
 def save_model(model: Model, model_type: str, task: str) -> None:
     model_name: str = f"{task}_{model_type}_model.keras"
     model.save(model_name)
 
+
 def save_history(history: History, model_type: str, task: str) -> None:
     model_name: str = f"{task}_{model_type}_history.json"
     with open(model_name, "w") as f:
         json.dump(history.history, f)
+
 
 def get_models_and_histories(model_types: List[str], task: str) -> List[Tuple[Model, History]]:
     dataset: Any = read_dataset_kaggle() if task == "emotions" else read_dataset_hf()
@@ -331,7 +345,7 @@ def get_models_and_histories(model_types: List[str], task: str) -> List[Tuple[Mo
     encoded_inputs: Dict[str, Any]
     labels: np.ndarray
     encoded_inputs, labels = transform_dataset_kaggle(dataset, tokenizer) if task == "emotions" else transform_dataset_hf(dataset, tokenizer)
-    
+
     x_train: Dict[str, Any]
     x_val: Dict[str, Any]
     y_train: np.ndarray
@@ -339,16 +353,12 @@ def get_models_and_histories(model_types: List[str], task: str) -> List[Tuple[Mo
 
     encoded_inputs_np = {key: val.numpy() for key, val in encoded_inputs.items()}
 
-    input_ids_train, input_ids_val, y_train, y_val = train_test_split(
-        encoded_inputs_np["input_ids"], labels, test_size=0.3, random_state=42
-    )
+    input_ids_train, input_ids_val, y_train, y_val = train_test_split(encoded_inputs_np["input_ids"], labels, test_size=0.3, random_state=42)
 
-    attention_mask_train, attention_mask_val = train_test_split(
-        encoded_inputs_np["attention_mask"], test_size=0.3, random_state=42
-    )
+    attention_mask_train, attention_mask_val = train_test_split(encoded_inputs_np["attention_mask"], test_size=0.3, random_state=42)
 
     x_train = {"input_ids": input_ids_train, "attention_mask": attention_mask_train}
-    x_val   = {"input_ids": input_ids_val, "attention_mask": attention_mask_val}
+    x_val = {"input_ids": input_ids_val, "attention_mask": attention_mask_val}
 
     models_and_histories: List[Tuple[Model, History]] = []
     for model_type in model_types:
@@ -364,6 +374,7 @@ def get_models_and_histories(model_types: List[str], task: str) -> List[Tuple[Mo
         gc.collect()
 
     return models_and_histories
+
 
 model_types: List[str] = ["dense", "recurrent", "transformer"]
 

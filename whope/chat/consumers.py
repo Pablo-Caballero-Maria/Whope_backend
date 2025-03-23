@@ -20,9 +20,11 @@ from utils.db_utils import (
     save_message_AI,
     set_user_status,
 )
+from utils.nlm import get_answer_from_emotions_mental_illnesses
 from utils.nlp_utils import (
     generate_answer_from_prompt,
     get_emotions_from_message,
+    get_mental_illnesses_from_message,
     get_topics_from_message,
 )
 from utils.pip_parser import get_rule_prompt_from_topics_emotions_history
@@ -83,23 +85,24 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if "virtual_room" in self.room_name:
             # TODO: use ai bot here
             decrypted_message: str = decrypt_with_symmetric_key(message, self.symmetric_key)
-            topics: List[str] = get_topics_from_message(decrypted_message)
-            emotions: List[str] = get_emotions_from_message(decrypted_message)
+            # topics: List[str] = get_topics_from_message(decrypted_message)
             encrypted_messages: List[Dict[str, str]] = await get_all_messages_from_user(self.user.get("user_id", None))
+            decrypted_messages: List[str] = [decrypt_with_symmetric_key(message.get("message"), self.symmetric_key) for message in encrypted_messages]
             # each message has a field "message" with the encrypted content, and some of them have a field "topics",
             # "emotions" and "rule_history" (these fields are not encrypted)
             # each message from decrypted_messages has a topic, an emotion and a rule applied to generate the answer
             # from among all the messages, I want the last "rule_history" field
-            rule_histories: List[List[str]] = [message.get("rule_history") for message in encrypted_messages if "rule_history" in message]
+            # rule_histories: List[List[str]] = [message.get("rule_history") for message in encrypted_messages if "rule_history" in message]
             # if the last message has no history because it comes from a conversation with a human from a previous day, then
             # we start from 0 with an empty history
-            rule_history: List[str] = rule_histories[-1] if len(rule_histories) > 0 and encrypted_messages[-1].get("history") is None else []
-            rule_and_prompt: tuple[str, str] = get_rule_prompt_from_topics_emotions_history(topics, emotions, rule_history)
-            new_rule_id: str = rule_and_prompt[0]
-            rule_history.append(new_rule_id)
-            prompt: str = rule_and_prompt[1]
-            answer: str = generate_answer_from_prompt(prompt, decrypted_message)
-            await save_message_AI(answer, self.user.get("user_id", None), topics, emotions, rule_history)
+            # rule_history: List[str] = rule_histories[-1] if len(rule_histories) > 0 and encrypted_messages[-1].get("rule_history") is None else []
+            # rule_and_prompt: tuple[str, str] = get_rule_prompt_from_topics_emotions_history(topics, emotions, rule_history)
+            # new_rule_id: str = rule_and_prompt[0]
+            # rule_history.append(new_rule_id)
+            # prompt: str = rule_and_prompt[1]
+            answer = await get_answer_from_emotions_mental_illnesses(decrypted_message, decrypted_messages)
+            # answer: str = await generate_answer_from_prompt(prompt, decrypted_message)
+            # await save_message_AI(answer, self.user.get("user_id", None), topics, emotions, rule_history)
             # answer: str = f"AI bot says: your message { decrypted_message } has been received."
             encrypted_answer: str = encrypt_with_symmetric_key(answer, self.symmetric_key)
             await self.channel_layer.group_send(
