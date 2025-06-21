@@ -1,0 +1,43 @@
+[tool.poetry]
+name = "whope"
+version = "0.1.0"
+description = ""
+authors = ["Pablo-Caballero-Maria <pabcabmar3@alum.us.es>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "3.12.10"
+django = "*"
+daphne = "*"
+channels = "*"
+python-dotenv = "*"
+djangorestframework = "*"
+djangorestframework-simplejwt = "*"
+motor = "*"
+celery = "*"
+aio-pika = "*"
+cleantext = "*"
+transformers = "*"
+tensorflow = "*"
+scikit-learn = "*"
+tf-keras = "*"
+plotly = "*"
+pandas = "*"
+kagglehub = "*"
+sentence_transformers = "*"
+nltk = "*"
+
+[tool.poetry.group.dev.dependencies]
+black = "*"
+isort = "*"
+autoflake = "*"
+
+[tool.black]
+line-length = 256
+
+[tool.isort]
+profile = "black"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

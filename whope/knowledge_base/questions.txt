@@ -1,0 +1,23 @@
+CONTAINMENT: ask how the day has been going  
+CONTAINMENT: offer quiet support or presence  
+CONTAINMENT: acknowledge the effort to reach out  
+CONTAINMENT: invite them to share what’s on their mind  
+CONTAINMENT: ask if there have been any recent moments of peace or joy  
+
+EXPLORATION: ask what has been bothering them lately  
+EXPLORATION: ask when the emotional difficulty began  
+EXPLORATION: ask what the hardest part of the experience is  
+EXPLORATION: explore how these feelings are affecting their life  
+EXPLORATION: ask them to personify their emotions  
+
+RESOURCE: ask who in their life offers safety or understanding  
+RESOURCE: ask if they have faced similar challenges before and how they coped  
+RESOURCE: explore activities or places that provide comfort  
+RESOURCE: prompt reflection on personal strengths and skills  
+RESOURCE: suggest doing a small self-care action today  
+
+RISK: check if the person feels physically and emotionally safe  
+RISK: assess for suicidal thoughts or severe emotional distress  
+RISK: offer to create a safety plan together  
+RISK: suggest reaching out to trusted people or professionals  
+RISK: normalize their feelings and express support to reduce isolation  
