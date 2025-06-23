@@ -29,11 +29,14 @@ async def get_free_non_worker() -> Dict[str, Any]:
     if non_workers:
         # for each non worker, get all his messages and retrieve the risk of each message, finally, select the non worker with the higher risk in his last message
         non_worker_with_highest_risk: Dict[str, Any] = None
+        highest_risk: float = None
         for non_worker in non_workers:
             messages: List[Dict[str, Any]] = await get_all_messages_from_user(non_worker["user_id"])
             if messages:
                 last_message: Dict[str, Any] = messages[-1]
-                if "risk" in last_message and (not non_worker_with_highest_risk or last_message["risk"] > non_worker_with_highest_risk.get("risk", 0)):
+                current_highest_risk: float = last_message.get("risk", 0)
+                if current_highest_risk > highest_risk or highest_risk is None:
+                    highest_risk = current_highest_risk
                     non_worker_with_highest_risk = non_worker
 
         return non_worker_with_highest_risk
