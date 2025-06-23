@@ -25,7 +25,6 @@ async def save_message(message_content: str, user_id: str) -> None:
 
 
 async def save_message_AI(enriched_message: Dict[str, str], user_id) -> None:
-    print("printing enriched message from db_utils.py", enriched_message)
     users: AsyncIOMotorCollection = await get_users()
     await users.update_one(
         {"_id": ObjectId(user_id)},
@@ -113,6 +112,5 @@ async def generate_token(data: Dict[str, Any]) -> Dict[str, str]:
 async def get_all_messages_from_user(user_id: str) -> List[Dict[str, str]]:
     users: AsyncIOMotorCollection = await get_users()
     user: Dict[str, Any] = await users.find_one({"_id": ObjectId(user_id)})
-    print("printing user from db_utils.py", user)
     messages: List[Dict[str, Any]] = user.get("messages", [])
     return messages

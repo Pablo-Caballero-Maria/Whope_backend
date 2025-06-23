@@ -19,11 +19,13 @@ from logging import ERROR, Logger, getLogger
 from pathlib import Path
 from typing import Any, Dict, List
 
+import nltk
 from dotenv import load_dotenv
 from motor.motor_asyncio import (
     AsyncIOMotorClient,
     AsyncIOMotorDatabase,
 )
+from nltk.corpus import stopwords
 from sentence_transformers import SentenceTransformer
 from tensorflow.keras.layers import Layer
 from tensorflow.keras.models import Model, load_model
@@ -43,9 +45,6 @@ from utils.boot_utils import (
     init_db,
     load_knowledge_base,
 )
-
-import nltk
-from nltk.corpus import stopwords
 
 load_dotenv()
 
@@ -217,14 +216,14 @@ QUESTIONS: List[str] = get_questions()
 CONTEXT_DOCS: List[str] = get_context_docs()
 
 # Make sure NLTK resources are available
-nltk.download('punkt')
-nltk.download('punkt_tab')
-nltk.download('wordnet')
-nltk.download('stopwords')
-nltk.download('omw-1.4')
+nltk.download("punkt")
+nltk.download("punkt_tab")
+nltk.download("wordnet")
+nltk.download("stopwords")
+nltk.download("omw-1.4")
 
 # Stopword list from NLTK
-STOP_WORDS = set(stopwords.words('english'))
+STOP_WORDS = set(stopwords.words("english"))
 
 if __name__ != "__main__":
     loop = asyncio.get_event_loop()

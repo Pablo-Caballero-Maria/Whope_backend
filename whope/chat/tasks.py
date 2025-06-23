@@ -8,6 +8,7 @@ from celery import shared_task
 from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorDatabase
 
 from whope.settings import RABBITMQ_URI, get_motor_db
+from whope.utils.db_utils import get_all_messages_from_user
 
 
 # bind=true allows to use "self"
@@ -26,7 +27,16 @@ async def get_free_non_worker() -> Dict[str, Any]:
     users: AsyncIOMotorCollection = db["users"]
     non_workers: List[Dict[str, Any]] = await users.find({"is_worker": "False", "status": "Free"}).to_list(None)
     if non_workers:
-        return random.choice(non_workers)
+        # for each non worker, get all his messages and retrieve the risk of each message, finally, select the non worker with the higher risk in his last message
+        non_worker_with_highest_risk: Dict[str, Any] = None
+        for non_worker in non_workers:
+            messages: List[Dict[str, Any]] = await get_all_messages_from_user(non_worker["user_id"])
+            if messages:
+                last_message: Dict[str, Any] = messages[-1]
+                if "risk" in last_message and (not non_worker_with_highest_risk or last_message["risk"] > non_worker_with_highest_risk.get("risk", 0)):
+                    non_worker_with_highest_risk = non_worker
+
+        return non_worker_with_highest_risk
     return None
 
 

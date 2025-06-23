@@ -77,22 +77,20 @@ class ChatConsumer(AsyncWebsocketConsumer):
         )
 
         if "virtual_room" in self.room_name:
-            # TODO: use ai bot here
-            decrypted_message: str = decrypt_with_symmetric_key(message, self.symmetric_key) # <-- decrypted content of last message
+            decrypted_message: str = decrypt_with_symmetric_key(message, self.symmetric_key)  # <-- decrypted content of last message
             encrypted_messages: List[Dict[str, Any]] = await get_all_messages_from_user(self.user.get("user_id", None))
-            print("printing encrypted messages from consumers", encrypted_messages)
-            decrypted_messages: List[Dict[str, Any]] = [{"message": decrypted_message}] # <-- only the first one is not enriched (cuz its the last one)
 
+            decrypted_messages: List[Dict[str, Any]] = []
             for encrypted_message in encrypted_messages:
                 decrypted_content: str = decrypt_with_symmetric_key(encrypted_message.get("message", None), self.symmetric_key)
                 encrypted_message["message"] = decrypted_content
                 decrypted_messages.append(encrypted_message)
-            
-            print("printing decrypted messages from consumers", decrypted_messages)
+
+            decrypted_messages.append({"message": decrypted_message})
             enriched_message: Dict[str, Any] = await get_enriched_message(decrypted_messages)
 
             answer: str = await generate_answer_from_enriched_message(enriched_message, decrypted_messages, self.user.get("user_id", None))
-            
+
             if answer == "END":
                 await set_user_status(self.user, "Disconnected")
                 await self.close()
@@ -182,7 +180,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
         # if theres an error with the token and i have to send the error response, i cannot do it before here (in get_user_from_token or in connect)
         # cuz the channel isnt even open
         await self.send(text_data=json.dumps(user)) if "error" in user else None
-        # TODO: maybe add more checks
 
     async def user_disconnection(self, event: Dict[str, str]) -> None:
         if self.user.get("is_worker", None) == "True":

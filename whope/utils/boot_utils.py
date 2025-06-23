@@ -85,7 +85,6 @@ async def store_document_with_embedding(doc_name: str, sentences: List[str]):
 
     for sentence in sentences:
         embedding = [SENTENCE_SIMILARITY_MODEL.encode(sentence, convert_to_tensor=True).tolist()]
-        print("shape of embedding for sentence: ", sentence, " ", np.array(embedding).shape)
         await collection.insert_one({"content": sentence, "embedding": embedding})
 
 

@@ -2,26 +2,27 @@ import random
 from typing import Any, Dict, List
 
 import tensorflow as tf
+import torch
 from cleantext import clean
-from utils.db_utils import save_message_AI
 from huggingface_hub import InferenceClient
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from nltk.stem import WordNetLemmatizer
+from nltk.tokenize import word_tokenize
 from sentence_transformers import util
 from transformers import AutoTokenizer, TFAutoModelForSequenceClassification
+from utils.db_utils import save_message_AI
 
 from whope.settings import (
+    BERT_TOKENIZER,
     CONTEXT_DOCS,
     EMOTION_MODEL,
     EMOTION_TOKENIZER,
     HF_TOKEN,
     QUESTIONS,
     SENTENCE_SIMILARITY_MODEL,
+    STOP_WORDS,
     get_motor_db,
-    STOP_WORDS
 )
-import torch
-from nltk.stem import WordNetLemmatizer
-from nltk.tokenize import word_tokenize
 
 
 def lemmatize(text):
@@ -53,21 +54,15 @@ def get_emotions_from_message(message: str) -> List[float]:
 
     prediction: List[float] = EMOTION_MODEL.predict([encoded_inputs["input_ids"], encoded_inputs["attention_mask"]])[0]
 
-    # inputs: AutoTokenizer = EMOTION_TOKENIZER(message, return_tensors="tf", truncation=True, padding=True)
-    # outputs: TFAutoModelForSequenceClassification = EMOTION_MODEL(inputs)
-    # logits: tf.Tensor = outputs.logits
-    # probs: tf.Tensor = tf.nn.softmax(logits, axis=1).numpy()[0]
-
-    return probs.tolist()
+    return prediction.tolist()
 
 
 async def generate_answer_from_prompt(prompt: str, message: str) -> str:
     # "message" is the unencrypted message content, needed for RAG
     client: InferenceClient = InferenceClient(api_key=HF_TOKEN)
-    model_name: str = "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B"
+    model_name: str = "deepseek-ai/DeepSeek-R1"
     relevant_docs: List[str] = [doc for doc in CONTEXT_DOCS if util.pytorch_cos_sim(SENTENCE_SIMILARITY_MODEL.encode(doc, convert_to_tensor=True), SENTENCE_SIMILARITY_MODEL.encode(message, convert_to_tensor=True)) > 0.7]
 
-    print("Relevant documents: ", relevant_docs)
     full_prompt: str = f"{prompt} \n Context documents: \n {' '.join(relevant_docs)}"
     messages = [{"role": "user", "content": full_prompt}]
     completion: str = client.chat.completions.create(model=model_name, messages=messages, max_tokens=500)
@@ -80,12 +75,23 @@ async def generate_answer_from_prompt(prompt: str, message: str) -> str:
 
 
 def has_risk_increased(past_messages: List[Dict[str, Any]]) -> bool:
-    past_message_amount: int = len(past_messages)
-    n = min(3, past_message_amount)
-    for i in range(1, n):
-        if past_messages[i]["risk"] > past_messages[i - 1]["risk"]:
-            return True
-    return False
+    if len(past_messages) < 3:
+        return False
+
+    # Get the last 3 messages to check trend
+    n = min(3, len(past_messages))
+    recent_messages = past_messages[-n:]
+
+    # Count how many consecutive increases we have
+    increases = 0
+    total_comparisons = len(recent_messages) - 1
+
+    for i in range(1, len(recent_messages)):
+        if recent_messages[i]["risk"] > recent_messages[i - 1]["risk"]:
+            increases += 1
+
+    # Consider it trending upward if more than half the comparisons show increase
+    return increases > total_comparisons / 2
 
 
 def is_containment_done(past_questions: List[str]) -> bool:
@@ -144,6 +150,7 @@ async def is_closure(message: str) -> bool:
 
     return any(util.pytorch_cos_sim(torch.tensor(doc["embedding"]), message_embedding).item() > 0.7 for doc in closure_embeddings)
 
+
 async def is_end(past_messages: List[Dict[str, Any]], enriched_message: Dict[str, Any]) -> bool:
     last_n_messages: List[str] = [message["message"] for message in past_messages[-3:]]
     last_n_messages_similar: bool = are_last_n_messages_similar(last_n_messages)
@@ -156,22 +163,17 @@ async def is_end(past_messages: List[Dict[str, Any]], enriched_message: Dict[str
 
 
 async def generate_answer_from_enriched_message(enriched_message: Dict[str, Any], past_messages: List[Dict[str, Any]], user_id) -> str:
-    print("printing enriched message from nlp_utils.py", enriched_message)
-    print("printing past messages from nlp_utils.py", past_messages) # this past messages include the just written one
     negative_emotions: List[str] = ["sadness", "hate", "anger"]
     questions: List[str] = QUESTIONS
     last_emotion: str = enriched_message["last_emotion"]
     past_questions: List[str] = enriched_message["past_questions"]  # each question is like: "RISK: How are you feeling today?"
 
     stage: str = get_stage(enriched_message, past_messages, past_questions, last_emotion, negative_emotions)
-    print("stage is ", stage)
-    # if is_end(past_messages, enriched_message):
-    #    return "END"
+    if is_end(past_messages, enriched_message):
+        return "END"
 
-    print("printing all questions: ", questions)
     potential_questions: List[str] = [question for question in questions if question.startswith(stage) and question not in past_questions]
     prompt: str = random.choice(potential_questions) if potential_questions else "END"
-    print("prompt is ", prompt)
     enriched_message["past_questions"].append(prompt)
 
     await save_message_AI(enriched_message, user_id)
